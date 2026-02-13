@@ -18,6 +18,7 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_drag::init())
         .manage(Mutex::new(commands::convert::ConversionState::default()))
         .setup(|app| {
             #[cfg(windows)]
@@ -54,6 +55,7 @@ fn main() {
             commands::export::get_temp_dir,
             commands::export::copy_file,
             commands::export::copy_files_to_directory,
+            commands::export::save_gifs_to_temp,
         ])
         .run(tauri::generate_context!())
         .expect("error while running VideoBricks");

@@ -264,9 +264,10 @@ export default function TrimSlider({
 
       const seg = segments[segmentIndex];
       const handleTime = edge === "start" ? seg.start : seg.end;
+      onSeek(handleTime);
       startDetailTimers(handleTime, segmentIndex, edge, e.clientX);
     },
-    [exitDetailMode, startDetailTimers, segments]
+    [exitDetailMode, startDetailTimers, segments, onSeek]
   );
 
   const handleSharedHandleMouseDown = useCallback(
@@ -274,11 +275,12 @@ export default function TrimSlider({
       e.preventDefault();
       e.stopPropagation();
       setDragging({ type: "shared", leftIndex, rightIndex, startX: e.clientX, resolved: false });
+      onSeek(segments[leftIndex].end);
       setDeleteIntent(null);
       setSnapBack(null);
       exitDetailMode();
     },
-    [exitDetailMode]
+    [exitDetailMode, onSeek, segments]
   );
 
   const handleTrackMouseDown = useCallback(

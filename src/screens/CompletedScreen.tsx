@@ -1,7 +1,9 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { resolveResource } from "@tauri-apps/api/path";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import type { GifResult, Mp4Result, ExportFormat } from "../lib/types";
 import { SEGMENT_COLORS } from "../lib/types";
 import * as api from "../lib/tauri";
@@ -29,6 +31,14 @@ export default function CompletedScreen({
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
+  const [dragIconPath, setDragIconPath] = useState<string>("");
+
+  // Resolve the bundled drag icon path once on mount
+  useEffect(() => {
+    resolveResource("icons/drag-icon.png")
+      .then(setDragIconPath)
+      .catch(console.error);
+  }, []);
 
   const isGif = format === "gif";
   const isMp4 = format === "mp4";
@@ -125,47 +135,54 @@ export default function CompletedScreen({
   const handleSaveAllRef = useRef(handleSaveAll);
   handleSaveAllRef.current = handleSaveAll;
 
-  // --- GIF drag handler ---
-  const handleGifDragStart = useCallback(
-    (e: React.DragEvent<HTMLImageElement>, index: number) => {
-      if (isMultiple) {
-        // In split mode: initiate Save All to Folder dialog
-        e.preventDefault();
-        handleSaveAllRef.current();
-        return;
-      }
-      const name = defaultSaveName;
-      e.dataTransfer.setData(
-        "DownloadURL",
-        `image/gif:${name}:${gifs[index].dataUrl}`
-      );
-    },
-    [defaultSaveName, gifs, isMultiple]
-  );
-
-  // --- MP4 drag handler ---
-  const handleMp4DragStart = useCallback(
-    (e: React.DragEvent<HTMLVideoElement>) => {
-      // DownloadURL doesn't reliably support asset:// URLs for MP4
-      // so we intercept and open a save dialog instead
+  // --- Native drag handler (works for both GIF and MP4, single and split) ---
+  // On mousedown we start a native drag. If the user merely clicks (no drag),
+  // startDrag resolves with "Cancelled" and we fall through to the save dialog.
+  const handleNativeDrag = useCallback(
+    async (e: React.MouseEvent) => {
       e.preventDefault();
-      if (isMultiple) {
-        handleSaveAllRef.current();
-      } else {
-        handleSaveSingleRef.current();
+      e.stopPropagation();
+      if (!dragIconPath) return;
+
+      try {
+        let paths: string[];
+
+        if (isGif) {
+          // GIFs are in memory -- write to temp files first
+          paths = await api.saveGifsToTemp(baseName);
+        } else {
+          // MP4s are already on disk
+          paths = mp4s.map((m) => m.filePath);
+        }
+
+        if (paths.length === 0) return;
+
+        let wasCancelled = false;
+        await startDrag({ item: paths, icon: dragIconPath }, (payload) => {
+          if (payload.result === "Cancelled") {
+            wasCancelled = true;
+          }
+        });
+
+        // If the user just clicked (drag was cancelled), fall through to save dialog
+        if (wasCancelled) {
+          if (isMultiple) {
+            handleSaveAllRef.current();
+          } else {
+            handleSaveSingleRef.current();
+          }
+        }
+      } catch (err) {
+        console.error("Drag failed:", err);
       }
     },
-    [isMultiple]
+    [dragIconPath, isGif, isMultiple, mp4s, baseName]
   );
 
-  // --- Generic click-to-save handler for thumbnails ---
-  const handleThumbnailClick = useCallback(() => {
-    if (isMultiple) {
-      handleSaveAllRef.current();
-    } else {
-      handleSaveSingleRef.current();
-    }
-  }, [isMultiple]);
+  // Prevent the default HTML5 drag so it doesn't interfere with native drag
+  const suppressHtmlDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -203,16 +220,14 @@ export default function CompletedScreen({
         style={isMultiple ? {
           borderBottom: `3px solid ${SEGMENT_COLORS[index % SEGMENT_COLORS.length]}`,
         } : undefined}
-        onClick={handleThumbnailClick}
       >
-        <div className="checkerboard">
+        <div className="checkerboard" onMouseDown={handleNativeDrag} onDragStart={suppressHtmlDrag}>
           {isGif ? (
             <img
               src={(item as GifResult).dataUrl}
               alt={isMultiple ? `GIF segment ${index + 1}` : "Converted GIF"}
               className={isMultiple ? "max-h-[200px] object-contain" : "max-w-full max-h-[340px] object-contain"}
-              draggable
-              onDragStart={(e) => handleGifDragStart(e, index)}
+              draggable={false}
             />
           ) : (
             <video
@@ -222,8 +237,7 @@ export default function CompletedScreen({
               loop
               muted
               playsInline
-              draggable
-              onDragStart={handleMp4DragStart}
+              draggable={false}
             />
           )}
         </div>

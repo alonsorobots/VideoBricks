@@ -24,6 +24,7 @@ tempfile = "3"
 thiserror = "2"
 base64 = "0.22"
 raw-window-handle = "0.6"
+tauri-plugin-drag = "2.1.0"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

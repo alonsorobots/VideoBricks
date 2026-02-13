@@ -100,18 +100,28 @@ pub async fn find_shots(
                 .ok_or_else(|| "transnet_detect.py script not found".to_string())?
         };
 
+        // Always use conda env (yt_filter) which has numpy, onnxruntime, etc.
+        // If the ONNX model exists next to the script, pass --model so the
+        // script uses ONNX Runtime instead of the heavier PyTorch backend.
+        let onnx_model = script_path.with_file_name("transnetv2.onnx");
         let conda_exe = ffmpeg::find_conda()?;
 
-        let mut cmd = ffmpeg::hidden_command(&conda_exe);
-        cmd.args([
-            "run",
-            "-n", "yt_filter",
-            "python", "-u", // unbuffered output so stderr streams in real-time
-            script_path.to_str().unwrap_or("transnet_detect.py"),
-            &path,
-            "--threshold",
-            &threshold.to_string(),
-        ]);
+        let mut cmd = {
+            let mut c = ffmpeg::hidden_command(&conda_exe);
+            c.args([
+                "run",
+                "-n", "yt_filter",
+                "python", "-u",
+                script_path.to_str().unwrap_or("transnet_detect.py"),
+                &path,
+                "--threshold",
+                &threshold.to_string(),
+            ]);
+            if onnx_model.exists() {
+                c.args(["--model", onnx_model.to_str().unwrap_or("transnetv2.onnx")]);
+            }
+            c
+        };
 
         // Spawn with piped stdout + stderr so we can stream stderr for progress
         cmd.stdout(std::process::Stdio::piped());

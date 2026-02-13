@@ -92,40 +92,43 @@ export default function StartScreen({ onVideoSelected }: StartScreenProps) {
         }`}
     >
       {/* Center content */}
-      <div className="h-full flex flex-col items-center justify-center relative z-10">
+      <div className="h-full flex items-center justify-center relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="flex flex-col items-center text-center"
+          className="relative flex items-center justify-center"
         >
-          {/* App logo */}
+          {/* App logo -- large background */}
           <img
             src="/app-icon.png"
             alt="VideoBricks"
-            className="w-24 h-24 rounded-2xl mb-5"
+            className="w-[600px] h-[600px]"
             draggable={false}
           />
 
-          <p className="text-lg font-medium" style={{ color: "#81858b" }}>
-            {loading
-              ? "Validating..."
-              : isDragOver
-                ? "Drop to open"
-                : "Drop a Video"}
-          </p>
+          {/* Text overlaid centered on the icon */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <p className="text-lg font-medium" style={{ color: "#81858b" }}>
+              {loading
+                ? "Validating..."
+                : isDragOver
+                  ? "Drop to open"
+                  : "Drop a Video"}
+            </p>
 
-          <div className="mt-3 flex items-center gap-2 justify-center">
-            <span className="text-lg font-medium" style={{ color: "#81858b" }}>or</span>
-            <button
-              onClick={handleOpenFile}
-              disabled={loading}
-              className="text-lg font-medium hover:opacity-80
-                transition-opacity disabled:opacity-50"
-              style={{ color: "#81858b" }}
-            >
-              Open
-            </button>
+            <div className="mt-2 flex items-center gap-2 justify-center">
+              <span className="text-lg font-medium" style={{ color: "#81858b" }}>or</span>
+              <button
+                onClick={handleOpenFile}
+                disabled={loading}
+                className="text-lg font-medium hover:opacity-80
+                  transition-opacity disabled:opacity-50"
+                style={{ color: "#81858b" }}
+              >
+                Open
+              </button>
+            </div>
           </div>
         </motion.div>
 
@@ -134,7 +137,7 @@ export default function StartScreen({ onVideoSelected }: StartScreenProps) {
           <motion.p
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-6 text-sm text-danger text-center max-w-sm px-4"
+            className="absolute bottom-8 text-sm text-danger text-center max-w-sm px-4"
           >
             {error}
           </motion.p>

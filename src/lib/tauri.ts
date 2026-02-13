@@ -142,6 +142,11 @@ export async function copyFilesToDirectory(
   return invoke("copy_files_to_directory", { sources, directory, baseName });
 }
 
+/** Write all in-memory GIFs to temp files. Returns list of temp file paths (for drag-out). */
+export async function saveGifsToTemp(baseName: string): Promise<string[]> {
+  return invoke("save_gifs_to_temp", { baseName });
+}
+
 /** Run TransNetV2 shot boundary detection on a video. Returns array of scene boundaries. */
 export async function findShots(
   path: string,

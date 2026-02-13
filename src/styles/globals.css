@@ -21,7 +21,9 @@
 }
 
 /* Base styles */
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   font-family: var(--font-sans);
@@ -34,7 +36,10 @@ html, body, #root {
 }
 
 /* Prevent text selection on interactive elements */
-button, input, select, label {
+button,
+input,
+select,
+label {
   user-select: none;
 }
 
@@ -44,7 +49,8 @@ button:focus {
 }
 
 /* Allow text selection in inputs */
-input[type="text"], input[type="number"] {
+input[type="text"],
+input[type="number"] {
   user-select: text;
 }
 
@@ -52,13 +58,16 @@ input[type="text"], input[type="number"] {
 ::-webkit-scrollbar {
   width: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #404046;
   border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
@@ -82,7 +91,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: #818cf8;
   cursor: pointer;
   border: 2px solid #1e1e22;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   transition: transform 0.1s;
 }
 
@@ -113,6 +122,7 @@ input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+
 input[type="number"] {
   -moz-appearance: textfield;
 }
@@ -125,13 +135,26 @@ input[type="number"] {
 
 /* Detail trim mode: thumbnail fade-in */
 @keyframes detailFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 /* Detail trim mode: loading indicator slide */
 @keyframes detailLoadingSlide {
-  0% { transform: translateX(-100%); }
-  50% { transform: translateX(250%); }
-  100% { transform: translateX(-100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+
+  50% {
+    transform: translateX(250%);
+  }
+
+  100% {
+    transform: translateX(-100%);
+  }
 }

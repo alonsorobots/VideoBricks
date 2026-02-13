@@ -1,8 +1,11 @@
 """
 TransNetV2 shot boundary detection script.
 
+Preferred: uses ONNX Runtime (~60 MB) for inference -- no PyTorch required.
+Fallback:  if no .onnx file is found, falls back to PyTorch inference.
+
 Usage:
-    python transnet_detect.py <video_path> [--threshold 0.35] [--weights path/to/weights.pth]
+    python transnet_detect.py <video_path> [--threshold 0.35] [--model path/to/transnetv2.onnx]
 
 Outputs JSON to stdout:
     [{"start": 0.0, "end": 3.5}, {"start": 3.5, "end": 8.2}, ...]
@@ -15,18 +18,30 @@ import argparse
 import subprocess
 import numpy as np
 
-# Resolve the TransNetV2 inference-pytorch directory.
-# Priority:
-#   1. TRANSNETV2_DIR environment variable (set by the user or app config)
-#   2. Relative to this script: ../../../../TransNetV2/inference-pytorch
-#   3. Common install location: ~/TransNetV2/inference-pytorch
+
+# ---------------------------------------------------------------------------
+# Locate resources
+# ---------------------------------------------------------------------------
+
+def _find_model_path():
+    """Find the ONNX model file (transnetv2.onnx)."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, "transnetv2.onnx"),
+        os.path.join(script_dir, "..", "models", "transnetv2.onnx"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return os.path.normpath(c)
+    return None
+
+
 def _find_transnet_dir():
-    # 1. Environment variable
+    """Find the TransNetV2 inference-pytorch directory (PyTorch fallback)."""
     env_dir = os.environ.get("TRANSNETV2_DIR")
     if env_dir and os.path.isdir(env_dir):
         return os.path.normpath(env_dir)
 
-    # 2. Relative to this script (works in dev layout)
     relative = os.path.normpath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "..", "..", "..", "..",
@@ -35,15 +50,16 @@ def _find_transnet_dir():
     if os.path.isdir(relative):
         return relative
 
-    # 3. Home directory
     home = os.path.join(os.path.expanduser("~"), "TransNetV2", "inference-pytorch")
     if os.path.isdir(home):
         return os.path.normpath(home)
 
-    return relative  # return best-guess so error message is useful
+    return relative
 
-TRANSNET_DIR = _find_transnet_dir()
 
+# ---------------------------------------------------------------------------
+# Video helpers
+# ---------------------------------------------------------------------------
 
 def get_video_fps(video_path):
     """Get the FPS of a video using ffprobe."""
@@ -87,33 +103,89 @@ def extract_frames(video_path):
     return frames
 
 
-def predict_frames_pytorch(model, frames):
-    """Run TransNetV2 PyTorch inference on frames, porting the sliding-window logic."""
-    import torch
+# ---------------------------------------------------------------------------
+# Sliding-window iterator (shared by both backends)
+# ---------------------------------------------------------------------------
 
-    def input_iterator():
-        no_padded_frames_start = 25
-        no_padded_frames_end = 25 + 50 - (len(frames) % 50 if len(frames) % 50 != 0 else 50)
+def sliding_window_iterator(frames):
+    """Yield [1, 100, 27, 48, 3] uint8 windows with 25-frame padding."""
+    no_padded_frames_start = 25
+    no_padded_frames_end = 25 + 50 - (len(frames) % 50 if len(frames) % 50 != 0 else 50)
 
-        start_frame = np.expand_dims(frames[0], 0)
-        end_frame = np.expand_dims(frames[-1], 0)
-        padded_inputs = np.concatenate(
-            [start_frame] * no_padded_frames_start + [frames] + [end_frame] * no_padded_frames_end, 0
-        )
+    start_frame = np.expand_dims(frames[0], 0)
+    end_frame = np.expand_dims(frames[-1], 0)
+    padded_inputs = np.concatenate(
+        [start_frame] * no_padded_frames_start + [frames] + [end_frame] * no_padded_frames_end, 0
+    )
 
-        ptr = 0
-        while ptr + 100 <= len(padded_inputs):
-            out = padded_inputs[ptr:ptr + 100]
-            ptr += 50
-            yield out[np.newaxis]
+    ptr = 0
+    while ptr + 100 <= len(padded_inputs):
+        out = padded_inputs[ptr:ptr + 100]
+        ptr += 50
+        yield out[np.newaxis]  # [1, 100, 27, 48, 3]
+
+
+# ---------------------------------------------------------------------------
+# ONNX Runtime inference (preferred -- lightweight, no PyTorch)
+# ---------------------------------------------------------------------------
+
+def predict_onnx(model_path, frames):
+    """Run TransNetV2 ONNX model with onnxruntime."""
+    import onnxruntime as ort
+
+    print("[TransNetV2] Loading ONNX model from {}".format(model_path), file=sys.stderr, flush=True)
+    sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
 
     predictions = []
+    for inp in sliding_window_iterator(frames):
+        results = sess.run(None, {"frames": inp.astype(np.uint8)})
+        single_frame_pred = 1.0 / (1.0 + np.exp(-results[0]))  # sigmoid
+        predictions.append(single_frame_pred[0, 25:75, 0])
 
+        print("[TransNetV2] Processing video frames {}/{}".format(
+            min(len(predictions) * 50, len(frames)), len(frames)
+        ), file=sys.stderr, flush=True)
+
+    print("", file=sys.stderr, flush=True)
+    single_frame_pred = np.concatenate(predictions)
+    return single_frame_pred[:len(frames)]
+
+
+# ---------------------------------------------------------------------------
+# PyTorch inference (fallback)
+# ---------------------------------------------------------------------------
+
+def predict_pytorch(frames, weights_path=None):
+    """Run TransNetV2 PyTorch inference."""
+    transnet_dir = _find_transnet_dir()
+    sys.path.insert(0, transnet_dir)
+
+    try:
+        from transnetv2_pytorch import TransNetV2
+    except ImportError:
+        print("[TransNetV2] ERROR: Could not import transnetv2_pytorch from {}".format(transnet_dir),
+              file=sys.stderr)
+        sys.exit(1)
+
+    import torch
+
+    if weights_path is None:
+        weights_path = os.path.join(transnet_dir, "transnetv2-pytorch-weights.pth")
+    if not os.path.isfile(weights_path):
+        print("[TransNetV2] ERROR: Weights not found at {}".format(weights_path), file=sys.stderr)
+        sys.exit(1)
+
+    print("[TransNetV2] Loading PyTorch model from {}".format(weights_path), file=sys.stderr, flush=True)
+    model = TransNetV2()
+    state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
+    model.load_state_dict(state_dict)
+    model.eval()
+
+    predictions = []
     with torch.no_grad():
-        for inp in input_iterator():
-            single_frame_pred, all_frames_pred = model(torch.from_numpy(inp))
+        for inp in sliding_window_iterator(frames):
+            single_frame_pred, _ = model(torch.from_numpy(inp))
             single_frame_pred = torch.sigmoid(single_frame_pred)
-
             predictions.append(single_frame_pred.numpy()[0, 25:75, 0])
 
             print("[TransNetV2] Processing video frames {}/{}".format(
@@ -121,10 +193,13 @@ def predict_frames_pytorch(model, frames):
             ), file=sys.stderr, flush=True)
 
     print("", file=sys.stderr, flush=True)
-
     single_frame_pred = np.concatenate(predictions)
     return single_frame_pred[:len(frames)]
 
+
+# ---------------------------------------------------------------------------
+# Scene detection
+# ---------------------------------------------------------------------------
 
 def predictions_to_scenes(predictions, threshold=0.5):
     """Convert frame-level predictions to scene boundaries (frame indices)."""
@@ -147,41 +222,18 @@ def predictions_to_scenes(predictions, threshold=0.5):
     return np.array(scenes, dtype=np.int32)
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(description="TransNetV2 shot detection")
     parser.add_argument("video", type=str, help="Path to video file")
     parser.add_argument("--threshold", type=float, default=0.35,
                         help="Scene change threshold (default 0.35)")
-    parser.add_argument("--weights", type=str, default=None,
-                        help="Path to .pth weights file")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Path to .onnx model file (preferred) or .pth weights (fallback)")
     args = parser.parse_args()
-
-    # Ensure we can import from TransNetV2
-    sys.path.insert(0, TRANSNET_DIR)
-    try:
-        from transnetv2_pytorch import TransNetV2
-    except ImportError:
-        print("[TransNetV2] ERROR: Could not import transnetv2_pytorch from {}".format(TRANSNET_DIR),
-              file=sys.stderr)
-        sys.exit(1)
-
-    import torch
-
-    # Locate weights
-    weights_path = args.weights
-    if weights_path is None:
-        weights_path = os.path.join(TRANSNET_DIR, "transnetv2-pytorch-weights.pth")
-
-    if not os.path.isfile(weights_path):
-        print("[TransNetV2] ERROR: Weights not found at {}".format(weights_path), file=sys.stderr)
-        sys.exit(1)
-
-    # Load model
-    print("[TransNetV2] Loading model from {}".format(weights_path), file=sys.stderr, flush=True)
-    model = TransNetV2()
-    state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
-    model.load_state_dict(state_dict)
-    model.eval()
 
     # Get video FPS
     fps = get_video_fps(args.video)
@@ -189,13 +241,20 @@ def main():
 
     # Extract frames
     frames = extract_frames(args.video)
-
     if len(frames) == 0:
         print("[TransNetV2] ERROR: No frames extracted", file=sys.stderr)
         sys.exit(1)
 
-    # Run inference
-    predictions = predict_frames_pytorch(model, frames)
+    # Choose backend: ONNX (preferred) or PyTorch (fallback)
+    model_path = args.model or _find_model_path()
+
+    if model_path and model_path.endswith(".onnx") and os.path.isfile(model_path):
+        print("[TransNetV2] Using ONNX Runtime backend", file=sys.stderr, flush=True)
+        predictions = predict_onnx(model_path, frames)
+    else:
+        print("[TransNetV2] ONNX model not found, falling back to PyTorch", file=sys.stderr, flush=True)
+        weights = model_path if (model_path and model_path.endswith(".pth")) else None
+        predictions = predict_pytorch(frames, weights_path=weights)
 
     # Convert to scenes
     scenes = predictions_to_scenes(predictions, threshold=args.threshold)

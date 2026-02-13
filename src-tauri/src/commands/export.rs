@@ -236,6 +236,44 @@ pub async fn copy_files_to_directory(
     Ok(saved_paths)
 }
 
+/// Write all in-memory GIFs to temp files and return their paths.
+/// Used by the drag plugin so we have real file paths for native OS drag-out.
+#[tauri::command]
+pub async fn save_gifs_to_temp(
+    app: tauri::AppHandle,
+    base_name: String,
+) -> Result<Vec<String>, String> {
+    let state = app.state::<Mutex<ConversionState>>();
+    let s = state.lock().map_err(|_| "State lock failed")?;
+    let data_list = s.gif_data_list.lock().map_err(|_| "Data lock failed")?;
+
+    if data_list.is_empty() {
+        return Err("No GIF data available.".to_string());
+    }
+
+    let temp_dir = std::env::temp_dir().join("videobricks-drag");
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    let mut paths = Vec::new();
+
+    if data_list.len() == 1 {
+        let path = temp_dir.join(format!("{}.gif", base_name));
+        std::fs::write(&path, &data_list[0])
+            .map_err(|e| format!("Failed to write temp GIF: {}", e))?;
+        paths.push(path.to_string_lossy().to_string());
+    } else {
+        for (i, data) in data_list.iter().enumerate() {
+            let path = temp_dir.join(format!("{}_{:02}.gif", base_name, i + 1));
+            std::fs::write(&path, data)
+                .map_err(|e| format!("Failed to write temp GIF {}: {}", i + 1, e))?;
+            paths.push(path.to_string_lossy().to_string());
+        }
+    }
+
+    Ok(paths)
+}
+
 /// Export the video with modifications (not as GIF) - legacy single-segment export
 #[tauri::command]
 pub async fn export_video(

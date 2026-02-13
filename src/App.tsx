@@ -43,18 +43,27 @@ export default function App() {
     api.getSettings().then(setSettings).catch(() => { });
   }, []);
 
-  // Resize window based on current screen -- must await sequentially
+  // Resize window based on current screen, proportional to monitor resolution.
+  // Your tweaked values on a 1920x1080 monitor were:
+  //   start: 600x600  => 31.25% width, 55.56% height
+  //   edit:  1920x1080 => 100% width, 100% height
   useEffect(() => {
     const resize = async () => {
       const appWindow = getCurrentWindow();
+      const sw = window.screen.width;
+      const sh = window.screen.height;
+
       if (screen.type === "start") {
+        const w = Math.round(sw * 0.2025);
+        const h = Math.round(sh * 0.3800);
         await appWindow.setMinSize(new LogicalSize(420, 320));
-        await appWindow.setSize(new LogicalSize(540, 380));
+        await appWindow.setSize(new LogicalSize(w, h));
         await appWindow.center();
       } else if (screen.type === "edit") {
-        // Set min first, then size (size may be clamped by old min otherwise)
+        const w = Math.round(sw * 0.8);
+        const h = Math.round(sh * 0.8);
         await appWindow.setMinSize(new LogicalSize(640, 480));
-        await appWindow.setSize(new LogicalSize(1024, 768));
+        await appWindow.setSize(new LogicalSize(w, h));
         await appWindow.center();
       }
     };

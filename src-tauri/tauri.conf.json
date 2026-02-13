@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "VideoBricks",
-        "width": 480,
-        "height": 360,
+        "width": 720,
+        "height": 720,
         "minWidth": 420,
         "minHeight": 320,
         "resizable": true,
@@ -35,7 +35,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -45,7 +48,9 @@
     "resources": {
       "binaries/ffmpeg.exe": "ffmpeg.exe",
       "binaries/ffprobe.exe": "ffprobe.exe",
-      "scripts/transnet_detect.py": "scripts/transnet_detect.py"
+      "scripts/transnet_detect.py": "scripts/transnet_detect.py",
+      "scripts/transnetv2.onnx": "scripts/transnetv2.onnx",
+      "icons/32x32.png": "icons/drag-icon.png"
     },
     "windows": {
       "certificateThumbprint": null,

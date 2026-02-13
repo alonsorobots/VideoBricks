@@ -967,22 +967,27 @@ export default function EditScreen({
                   <span className="text-xs text-text-secondary">Bounce</span>
                 </label>
 
-                {/* Merge/Split toggle -- only when multiple segments */}
-                {segments.length > 1 && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-text-tertiary">Output mode:</span>
-                    <button
-                      onClick={() => setSegmentMode(segmentMode === "merge" ? "split" : "merge")}
-                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                        segmentMode === "merge"
-                          ? "bg-accent/15 text-accent"
-                          : "bg-orange-500/15 text-orange-400"
-                      }`}
-                    >
-                      {segmentMode === "merge" ? "Merge" : "Split"}
-                    </button>
-                  </div>
-                )}
+                {/* Merge/Split toggle -- visible only when multiple segments,
+                    but always rendered to avoid layout shift */}
+                <div
+                  className="flex items-center gap-1.5 transition-opacity duration-150"
+                  style={{
+                    opacity: segments.length > 1 ? 1 : 0,
+                    pointerEvents: segments.length > 1 ? "auto" : "none",
+                  }}
+                >
+                  <span className="text-[10px] text-text-tertiary">Output mode:</span>
+                  <button
+                    onClick={() => setSegmentMode(segmentMode === "merge" ? "split" : "merge")}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                      segmentMode === "merge"
+                        ? "bg-accent/15 text-accent"
+                        : "bg-orange-500/15 text-orange-400"
+                    }`}
+                  >
+                    {segmentMode === "merge" ? "Merge" : "Split"}
+                  </button>
+                </div>
               </div>
             </div>
 

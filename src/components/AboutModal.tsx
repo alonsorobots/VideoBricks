@@ -104,7 +104,7 @@ export default function AboutModal({ open, onClose }: AboutModalProps) {
                       9.644 14.5 7.65 14.5 5.5c0-1.836-1.414-3-2.75-3-1.373 0-2.609.986-3.029
                       2.456a.749.749 0 01-1.442 0C6.859 3.486 5.623 2.5 4.25 2.5z" />
                   </svg>
-                  Buy me a coffee
+                  Buy me coffee
                 </ExternalLink>
 
                 <ExternalLink
@@ -156,8 +156,7 @@ export default function AboutModal({ open, onClose }: AboutModalProps) {
               {/* Vibe coded */}
               <div className="px-6 py-3">
                 <p className="text-[10px] text-text-tertiary text-center leading-relaxed italic">
-                  Vibe coded into existence with Claude by Anthropic.
-                  No humans were mass-replaced in the making of this app.
+                  Vibe coded with the help of Claude the conqueror.
                 </p>
               </div>
 

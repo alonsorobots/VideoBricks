@@ -8,6 +8,9 @@ src-tauri/target/
 # Bundled binaries (not committed -- download separately)
 src-tauri/binaries/*.exe
 
+# ONNX model (uncomment to exclude from git if using external hosting instead)
+# src-tauri/scripts/*.onnx
+
 # OS files
 Thumbs.db
 .DS_Store
