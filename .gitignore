@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+
+# Bundled binaries (not committed -- download separately)
+src-tauri/binaries/*.exe
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.*
+
+# Lock files (optional -- uncomment if you prefer not to commit)
+# package-lock.json
+# Cargo.lock

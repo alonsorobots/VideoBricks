@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+@theme {
+  --color-accent: #818cf8;
+  --color-accent-hover: #6366f1;
+  --color-accent-light: #312e81;
+  --color-surface: #1e1e22;
+  --color-surface-hover: #27272b;
+  --color-surface-raised: #2a2a2e;
+  --color-border: #333338;
+  --color-border-strong: #404046;
+  --color-text-primary: #f0f0f2;
+  --color-text-secondary: #9e9ea8;
+  --color-text-tertiary: #66666e;
+  --color-danger: #f87171;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-bg: #252931;
+  --color-bg-secondary: #1e2128;
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/* Base styles */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  overflow: hidden;
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+/* Prevent text selection on interactive elements */
+button, input, select, label {
+  user-select: none;
+}
+
+/* Remove default focus outline from buttons (we use custom visual states) */
+button:focus {
+  outline: none;
+}
+
+/* Allow text selection in inputs */
+input[type="text"], input[type="number"] {
+  user-select: text;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #404046;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #333338;
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #818cf8;
+  cursor: pointer;
+  border: 2px solid #1e1e22;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  transition: transform 0.1s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  background: #a5b4fc;
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(1.05);
+}
+
+/* Checkerboard pattern for transparency (dark) */
+.checkerboard {
+  background-image:
+    linear-gradient(45deg, #2a2a2e 25%, transparent 25%),
+    linear-gradient(-45deg, #2a2a2e 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2a2a2e 75%),
+    linear-gradient(-45deg, transparent 75%, #2a2a2e 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  background-color: #1e1e22;
+}
+
+/* Number input arrows hidden */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Frosted glass effect (dark) */
+.frosted {
+  backdrop-filter: blur(20px) saturate(180%);
+  background-color: rgba(37, 41, 49, 0.82);
+}
+
+/* Detail trim mode: thumbnail fade-in */
+@keyframes detailFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Detail trim mode: loading indicator slide */
+@keyframes detailLoadingSlide {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(250%); }
+  100% { transform: translateX(-100%); }
+}
