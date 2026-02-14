@@ -1,0 +1,28 @@
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `npm run build`
+
+> videobricks@1.0.0 build
+> tsc && vite build
+
+vite v6.4.1 building for production...
+transforming...
+✓ 414 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.51 kB │ gzip:   0.33 kB
+dist/assets/index-B13Sqvns.css   33.74 kB │ gzip:   6.92 kB
+dist/assets/index-D8y2EL4f.js   405.75 kB │ gzip: 124.04 kB
+✓ built in 1.44s
+   Compiling windows v0.58.0
+   Compiling videobricks v1.0.0 (C:\Users\admin\Desktop\RESEARCH\VideoBricks\src-tauri)
+    Finished `release` profile [optimized] target(s) in 1m 02s
+       Built application at: C:\Users\admin\Desktop\RESEARCH\VideoBricks\src-tauri\target\release\videobricks.exe
+        Info Target: x64
+     Running makensis to produce C:\Users\admin\Desktop\RESEARCH\VideoBricks\src-tauri\target\release\bundle\nsis\VideoBricks_1.0.0_x64-setup.exe
+        Info Target: x64
+     Running candle for "C:\\Users\\admin\\Desktop\\RESEARCH\\VideoBricks\\src-tauri\\target\\release\\wix\\x64\\main.wxs"
+     Running light to produce C:\Users\admin\Desktop\RESEARCH\VideoBricks\src-tauri\target\release\bundle\msi\VideoBricks_1.0.0_x64_en-US.msi
+    Finished 2 bundles at:
+        C:\Users\admin\Desktop\RESEARCH\VideoBricks\src-tauri\target\release\bundle\nsis\VideoBricks_1.0.0_x64-setup.exe
+        C:\Users\admin\Desktop\RESEARCH\VideoBricks\src-tauri\target\release\bundle\msi\VideoBricks_1.0.0_x64_en-US.msi
+

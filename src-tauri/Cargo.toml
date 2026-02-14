@@ -1,6 +1,6 @@
 [package]
 name = "videobricks"
-version = "1.0.0"
+version = "1.0.1"
 description = "VideoBricks - Convert videos to high-quality GIFs and MP4s"
 authors = ["alonsorobots"]
 edition = "2021"
