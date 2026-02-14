@@ -54,14 +54,14 @@ export default function App() {
       const sh = window.screen.height;
 
       if (screen.type === "start") {
-        const w = Math.round(sw * 0.2025);
-        const h = Math.round(sh * 0.3800);
+        const w = Math.round(sw * 0.18);
+        const h = Math.round(sh * 0.3200);
         await appWindow.setMinSize(new LogicalSize(420, 320));
         await appWindow.setSize(new LogicalSize(w, h));
         await appWindow.center();
       } else if (screen.type === "edit") {
-        const w = Math.round(sw * 0.8);
-        const h = Math.round(sh * 0.8);
+        const w = Math.round(sw * 0.5);
+        const h = Math.round(sh * 0.6);
         await appWindow.setMinSize(new LogicalSize(640, 480));
         await appWindow.setSize(new LogicalSize(w, h));
         await appWindow.center();

@@ -2,7 +2,13 @@
 
 Convert videos to high-quality GIFs and optimized MP4s with a multi-segment timeline editor and AI-powered shot detection.
 
-<!-- ![VideoBricks Screenshot](screenshot.png) -->
+<div align="center">
+
+[![Watch the demo](https://img.youtube.com/vi/rJ6XCk_fB5Y/maxresdefault.jpg)](https://youtu.be/rJ6XCk_fB5Y)
+
+**[Watch the Demo Video](https://youtu.be/rJ6XCk_fB5Y)**
+
+</div>
 
 ## Features
 

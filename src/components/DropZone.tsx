@@ -48,10 +48,9 @@ export default function DropZone({ onFileDrop, loading }: DropZoneProps) {
         transition-all duration-200 ease-out
         flex flex-col items-center justify-center
         py-16 px-8 cursor-default
-        ${
-          isDragOver
-            ? "border-accent bg-accent/5 scale-[1.01] shadow-lg"
-            : "border-border-strong hover:border-text-tertiary bg-surface"
+        ${isDragOver
+          ? "border-accent bg-accent/5 scale-[1.01] shadow-lg"
+          : "border-border-strong hover:border-text-tertiary bg-surface"
         }
         ${loading ? "opacity-60 pointer-events-none" : ""}
       `}
@@ -86,9 +85,8 @@ export default function DropZone({ onFileDrop, loading }: DropZoneProps) {
           </svg>
         ) : (
           <svg
-            className={`w-6 h-6 transition-colors ${
-              isDragOver ? "text-accent" : "text-text-tertiary"
-            }`}
+            className={`w-6 h-6 transition-colors ${isDragOver ? "text-accent" : "text-text-tertiary"
+              }`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -105,15 +103,14 @@ export default function DropZone({ onFileDrop, loading }: DropZoneProps) {
 
       {/* Text */}
       <p
-        className={`text-sm font-medium transition-colors ${
-          isDragOver ? "text-accent" : "text-text-primary"
-        }`}
+        className={`text-sm font-medium transition-colors ${isDragOver ? "text-accent" : "text-text-primary"
+          }`}
       >
         {loading
           ? "Validating video..."
           : isDragOver
-          ? "Drop to open"
-          : "Drop a Video Here"}
+            ? "Drop to open"
+            : "Drop a video"}
       </p>
       <p className="text-xs text-text-tertiary mt-1">
         {loading ? "Please wait" : "MP4, MOV, AVI, WebM, MKV"}

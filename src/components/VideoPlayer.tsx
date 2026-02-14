@@ -119,7 +119,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     }, [onPlayingChange]);
 
     return (
-      <div className="w-full h-full flex items-center justify-center relative bg-bg">
+      <div className="w-full h-full flex items-center justify-center relative bg-bg-neutral">
         <video
           ref={videoRef}
           src={src}

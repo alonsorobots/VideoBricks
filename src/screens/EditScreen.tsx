@@ -131,7 +131,7 @@ export default function EditScreen({
       const count = Math.max(8, Math.ceil(containerWidth / THUMB_WIDTH_APPROX));
       api.getVideoThumbnails(videoPath, count, THUMB_HEIGHT)
         .then(setThumbnails)
-        .catch(() => {});
+        .catch(() => { });
     };
 
     loadThumbnails();
@@ -189,7 +189,7 @@ export default function EditScreen({
   const handleScrubEnd = useCallback(() => {
     setIsScrubbing(false);
     if (wasPlayingBeforeScrub.current && videoRef.current) {
-      videoRef.current.play().catch(() => {});
+      videoRef.current.play().catch(() => { });
     }
   }, []);
 
@@ -276,7 +276,7 @@ export default function EditScreen({
 
       // Same crop? Nothing to sync.
       if (prev.x === newCrop.x && prev.y === newCrop.y &&
-          prev.width === newCrop.width && prev.height === newCrop.height) return;
+        prev.width === newCrop.width && prev.height === newCrop.height) return;
 
       // Maintain the user's current scale ratio across the crop change.
       const prevCropW = Math.max(1, Math.round(prev.width * metadata.width));
@@ -393,7 +393,7 @@ export default function EditScreen({
       }
     );
     return () => { unlisten.then((fn) => fn()); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findShotsProgress?.stage]);
 
   // Animation loop: smoothly update ringProgress based on stage + elapsed time
@@ -665,7 +665,7 @@ export default function EditScreen({
       </div>
 
       {/* Video player area */}
-      <div ref={videoContainerRef} className="relative flex-1 min-h-0 bg-bg overflow-hidden">
+      <div ref={videoContainerRef} className="relative flex-1 min-h-0 bg-bg-neutral overflow-hidden">
         {/* Zoom wrapper: contains video + crop mask; transformed when crop preview is active */}
         <div
           className="absolute inset-0"
@@ -778,7 +778,7 @@ export default function EditScreen({
               const count = metadata.duration > 300 ? Math.min(rawCount, 12) : rawCount;
               api.getVideoThumbnailsRange(videoPath, count, 40, startTime, endTime)
                 .then(setDetailThumbnails)
-                .catch(() => {});
+                .catch(() => { });
             }}
             onClearDetailThumbnails={() => setDetailThumbnails(null)}
           />
@@ -908,6 +908,87 @@ export default function EditScreen({
               />
             </div>
 
+            {/* Find Shots row */}
+            <div className="flex items-center gap-2">
+              {(() => {
+                // ringProgress is driven by the animation loop effect above
+                // SVG ring params
+                const size = 14;
+                const strokeWidth = 2;
+                const radius = (size - strokeWidth) / 2;
+                const circumference = 2 * Math.PI * radius;
+                const dashOffset = circumference - (ringProgress / 100) * circumference;
+
+                return (
+                  <button
+                    onClick={handleFindShots}
+                    disabled={findingShotsLoading}
+                    className={`px-3 py-1 rounded text-[11px] font-medium transition-all
+                      ${findingShotsLoading
+                        ? "bg-accent/22 text-accent cursor-wait"
+                        : "bg-accent/20 text-accent hover:bg-accent/28"
+                      }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {findingShotsLoading ? (
+                        <>
+                          <svg width={size} height={size} className="shrink-0 -rotate-90">
+                            <circle
+                              cx={size / 2} cy={size / 2} r={radius}
+                              fill="none" stroke="currentColor" strokeWidth={strokeWidth}
+                              opacity={0.2}
+                            />
+                            <circle
+                              cx={size / 2} cy={size / 2} r={radius}
+                              fill="none" stroke="currentColor" strokeWidth={strokeWidth}
+                              strokeDasharray={circumference}
+                              strokeDashoffset={dashOffset}
+                              strokeLinecap="round"
+                              className="transition-all duration-500 ease-out"
+                            />
+                          </svg>
+                          Find Shots
+                        </>
+                      ) : (
+                        "Find Shots"
+                      )}
+                    </span>
+                  </button>
+                );
+              })()}
+
+              {/* Activation controls -- appear after Find Shots has been used */}
+              <div
+                className="flex items-center gap-1.5 overflow-hidden transition-all duration-300 ease-out"
+                style={{
+                  maxWidth: hasUsedFindShots ? "300px" : "0px",
+                  opacity: hasUsedFindShots ? 1 : 0,
+                }}
+              >
+                <button
+                  onClick={allActive ? handleDeactivateAll : handleActivateAll}
+                  className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors
+                    bg-accent/20 text-accent hover:bg-accent/28 whitespace-nowrap"
+                >
+                  {allActive ? "Deactivate All" : "Activate All"}
+                </button>
+                <button
+                  onClick={handleInverseActive}
+                  className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors
+                    bg-accent/20 text-accent hover:bg-accent/28"
+                >
+                  Inverse
+                </button>
+              </div>
+
+              {/* Error display */}
+              {findShotsError && (
+                <span className="text-[10px] text-red-400 truncate max-w-[300px]" title={findShotsError}>
+                  {findShotsError.length > 80 ? findShotsError.slice(0, 80) + "..." : findShotsError}
+                </span>
+              )}
+            </div>
+
             {/* Loop + Bounce */}
             <div className="flex items-center gap-4">
               <label className="text-xs font-medium text-text-secondary">
@@ -979,97 +1060,15 @@ export default function EditScreen({
                   <span className="text-[10px] text-text-tertiary">Output mode:</span>
                   <button
                     onClick={() => setSegmentMode(segmentMode === "merge" ? "split" : "merge")}
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                      segmentMode === "merge"
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${segmentMode === "merge"
                         ? "bg-accent/15 text-accent"
                         : "bg-orange-500/15 text-orange-400"
-                    }`}
+                      }`}
                   >
                     {segmentMode === "merge" ? "Merge" : "Split"}
                   </button>
                 </div>
               </div>
-            </div>
-
-            {/* Find Shots row */}
-            <div className="flex items-center gap-2">
-              {(() => {
-                // ringProgress is driven by the animation loop effect above
-                // SVG ring params
-                const size = 14;
-                const strokeWidth = 2;
-                const radius = (size - strokeWidth) / 2;
-                const circumference = 2 * Math.PI * radius;
-                const dashOffset = circumference - (ringProgress / 100) * circumference;
-
-                return (
-                  <button
-                    onClick={handleFindShots}
-                    disabled={findingShotsLoading}
-                    className={`px-3 py-1 rounded text-[11px] font-medium transition-all
-                      ${findingShotsLoading
-                        ? "bg-purple-700/18 text-purple-400/70 cursor-wait"
-                        : "bg-purple-700/14 text-purple-400/70 hover:bg-purple-700/22"
-                      }`}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      {findingShotsLoading ? (
-                        <>
-                          <svg width={size} height={size} className="shrink-0 -rotate-90">
-                            <circle
-                              cx={size / 2} cy={size / 2} r={radius}
-                              fill="none" stroke="currentColor" strokeWidth={strokeWidth}
-                              opacity={0.2}
-                            />
-                            <circle
-                              cx={size / 2} cy={size / 2} r={radius}
-                              fill="none" stroke="currentColor" strokeWidth={strokeWidth}
-                              strokeDasharray={circumference}
-                              strokeDashoffset={dashOffset}
-                              strokeLinecap="round"
-                              className="transition-all duration-500 ease-out"
-                            />
-                          </svg>
-                          Find Shots
-                        </>
-                      ) : (
-                        "Find Shots"
-                      )}
-                    </span>
-                  </button>
-                );
-              })()}
-
-              {/* Activation controls -- appear after Find Shots has been used */}
-              <div
-                className="flex items-center gap-1.5 overflow-hidden transition-all duration-300 ease-out"
-                style={{
-                  maxWidth: hasUsedFindShots ? "300px" : "0px",
-                  opacity: hasUsedFindShots ? 1 : 0,
-                }}
-              >
-                <button
-                  onClick={allActive ? handleDeactivateAll : handleActivateAll}
-                  className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors
-                    bg-purple-700/14 text-purple-400/70 hover:bg-purple-700/22 whitespace-nowrap"
-                >
-                  {allActive ? "Deactivate All" : "Activate All"}
-                </button>
-                <button
-                  onClick={handleInverseActive}
-                  className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors
-                    bg-purple-700/14 text-purple-400/70 hover:bg-purple-700/22"
-                >
-                  Inverse
-                </button>
-              </div>
-
-              {/* Error display */}
-              {findShotsError && (
-                <span className="text-[10px] text-red-400 truncate max-w-[300px]" title={findShotsError}>
-                  {findShotsError.length > 80 ? findShotsError.slice(0, 80) + "..." : findShotsError}
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -1098,8 +1097,8 @@ export default function EditScreen({
           </button>
           <button
             onClick={handleConvert}
-            className="px-5 py-2 bg-accent text-white rounded-lg text-sm font-medium
-              hover:bg-accent-hover active:scale-[0.98] transition-all
+            className="px-5 py-2 bg-accent-hover text-white rounded-lg text-sm font-medium
+              hover:bg-[#7c3aed] active:scale-[0.98] transition-all
               shadow-sm hover:shadow-md"
           >
             GIF

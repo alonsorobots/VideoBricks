@@ -1,22 +1,23 @@
 @import "tailwindcss";
 
 @theme {
-  --color-accent: #818cf8;
-  --color-accent-hover: #6366f1;
-  --color-accent-light: #312e81;
-  --color-surface: #1e1e22;
-  --color-surface-hover: #27272b;
-  --color-surface-raised: #2a2a2e;
-  --color-border: #333338;
-  --color-border-strong: #404046;
-  --color-text-primary: #f0f0f2;
-  --color-text-secondary: #9e9ea8;
-  --color-text-tertiary: #66666e;
+  --color-accent: #a78bfa;
+  --color-accent-hover: #8b5cf6;
+  --color-accent-light: #271e36;
+  --color-surface: #1f1c24;
+  --color-surface-hover: #272530;
+  --color-surface-raised: #292431;
+  --color-border: #292431;
+  --color-border-strong: #47434f;
+  --color-text-primary: #f0eff2;
+  --color-text-secondary: #a5a2ad;
+  --color-text-tertiary: #6b6775;
   --color-danger: #f87171;
   --color-success: #4ade80;
   --color-warning: #fbbf24;
-  --color-bg: #252931;
-  --color-bg-secondary: #1e2128;
+  --color-bg: #1b141f;
+  --color-bg-secondary: #16101a;
+  --color-bg-neutral: #1a1a1d;
   --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
@@ -64,12 +65,12 @@ input[type="number"] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #404046;
+  background: #47434f;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #5a5664;
 }
 
 /* Slider styling */
@@ -77,7 +78,7 @@ input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   height: 4px;
-  background: #333338;
+  background: #35313e;
   border-radius: 2px;
   outline: none;
 }
@@ -88,32 +89,32 @@ input[type="range"]::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #818cf8;
+  background: #a78bfa;
   cursor: pointer;
-  border: 2px solid #1e1e22;
+  border: 2px solid #1f1c24;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   transition: transform 0.1s;
 }
 
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.15);
-  background: #a5b4fc;
+  background: #c4b5fd;
 }
 
 input[type="range"]::-webkit-slider-thumb:active {
   transform: scale(1.05);
 }
 
-/* Checkerboard pattern for transparency (dark) */
+/* Checkerboard pattern for transparency (dark, subtle purple) */
 .checkerboard {
   background-image:
-    linear-gradient(45deg, #2a2a2e 25%, transparent 25%),
-    linear-gradient(-45deg, #2a2a2e 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #2a2a2e 75%),
-    linear-gradient(-45deg, transparent 75%, #2a2a2e 75%);
+    linear-gradient(45deg, #2a2832 25%, transparent 25%),
+    linear-gradient(-45deg, #2a2832 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2a2832 75%),
+    linear-gradient(-45deg, transparent 75%, #2a2832 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-  background-color: #1e1e22;
+  background-color: #1f1c24;
 }
 
 /* Number input arrows hidden */
@@ -127,10 +128,49 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
-/* Frosted glass effect (dark) */
+/* Custom checkbox styling (purple theme) */
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: 3px;
+  background-color: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+input[type="checkbox"]:checked {
+  background-color: rgb(68, 56, 98);
+  border-color: : rgb(68, 56, 98);
+}
+
+input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid rgb(154, 133, 203);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+input[type="checkbox"]:hover {
+  border-color: var(--color-accent);
+}
+
+input[type="checkbox"]:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.3);
+}
+
+/* Panel background for toolbar / timeline / bottom bar */
 .frosted {
-  backdrop-filter: blur(20px) saturate(180%);
-  background-color: rgba(37, 41, 49, 0.82);
+  background-color: var(--color-surface);
 }
 
 /* Detail trim mode: thumbnail fade-in */

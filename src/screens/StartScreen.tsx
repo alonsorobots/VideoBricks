@@ -95,40 +95,31 @@ export default function StartScreen({ onVideoSelected }: StartScreenProps) {
       <div className="h-full flex items-center justify-center relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          animate={{ opacity: loading ? 0 : 1, y: 0 }}
+          transition={{ duration: loading ? 0.1 : 0.5 }}
           className="relative flex items-center justify-center"
         >
-          {/* App logo -- large background */}
+          {/* App logo -- scales uniformly with window, clickable to open file */}
           <img
             src="/app-icon.png"
             alt="VideoBricks"
-            className="w-[600px] h-[600px]"
+            className="max-w-[90vmin] max-h-[90vmin] w-auto h-auto cursor-pointer object-contain"
             draggable={false}
+            onClick={handleOpenFile}
           />
 
-          {/* Text overlaid centered on the icon */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <p className="text-lg font-medium" style={{ color: "#81858b" }}>
-              {loading
-                ? "Validating..."
-                : isDragOver
-                  ? "Drop to open"
-                  : "Drop a Video"}
+          {/* Text overlaid centered on the icon -- pointer-events-none so clicks pass through to image */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <p
+              className="text-lg font-medium pointer-events-auto cursor-pointer"
+              style={{
+                color: "#25a4d9",
+                fontFamily: '"Myriad Pro", Myriad, "Segoe UI", "Helvetica Neue", Arial, sans-serif',
+              }}
+              onClick={handleOpenFile}
+            >
+              {isDragOver ? "Drop to open" : "Drop a video"}
             </p>
-
-            <div className="mt-2 flex items-center gap-2 justify-center">
-              <span className="text-lg font-medium" style={{ color: "#81858b" }}>or</span>
-              <button
-                onClick={handleOpenFile}
-                disabled={loading}
-                className="text-lg font-medium hover:opacity-80
-                  transition-opacity disabled:opacity-50"
-                style={{ color: "#81858b" }}
-              >
-                Open
-              </button>
-            </div>
           </div>
         </motion.div>
 

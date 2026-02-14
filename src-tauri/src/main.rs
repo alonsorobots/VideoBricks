@@ -25,6 +25,29 @@ fn main() {
             {
                 let window = app.get_webview_window("main").unwrap();
                 taskbar::init_taskbar(&window);
+
+                // Set title bar color to match app theme (#1f1c24)
+                {
+                    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                    use windows::Win32::Foundation::HWND;
+                    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR};
+
+                    if let Ok(handle) = window.window_handle() {
+                        if let RawWindowHandle::Win32(h) = handle.as_raw() {
+                            let hwnd = HWND(h.hwnd.get() as *mut _);
+                            // COLORREF is 0x00BBGGRR
+                            let color: u32 = 0x00241c1f; // #1f1c24 in BGR
+                            unsafe {
+                                let _ = DwmSetWindowAttribute(
+                                    hwnd,
+                                    DWMWA_CAPTION_COLOR,
+                                    &color as *const u32 as *const _,
+                                    std::mem::size_of::<u32>() as u32,
+                                );
+                            }
+                        }
+                    }
+                }
             }
             Ok(())
         })

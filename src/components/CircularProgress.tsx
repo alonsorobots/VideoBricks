@@ -25,7 +25,7 @@ export default function CircularProgress({
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="#333338"
+          stroke="#35313e"
           strokeWidth={strokeWidth}
         />
         {/* Progress circle */}
@@ -44,8 +44,8 @@ export default function CircularProgress({
         {/* Gradient */}
         <defs>
           <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#6366f1" />
-            <stop offset="100%" stopColor="#8b5cf6" />
+            <stop offset="0%" stopColor="#a78bfa" />
+            <stop offset="100%" stopColor="#c084fc" />
           </linearGradient>
         </defs>
       </svg>

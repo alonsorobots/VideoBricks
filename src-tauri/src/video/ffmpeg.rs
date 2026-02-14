@@ -337,13 +337,24 @@ pub fn extract_frames(
         return Err("Video is too short - need at least 2 frames".to_string());
     }
 
+    // Use -ss (input seeking) BEFORE -i for fast demuxer-level seeking.
+    // This avoids decoding the entire video up to the start point.
+    // We seek slightly before the segment start to ensure we don't miss the
+    // first keyframe, then use trim filter for frame-accurate boundaries.
+    let seek_margin = 1.0_f64; // seconds before segment start to seek to
+    let seek_to = (actual_start - seek_margin).max(0.0);
+    let seg_duration = actual_end - actual_start;
+
     // Build ffmpeg filter chain
     let mut filters = Vec::new();
 
-    // Trim
+    // Fine-grained trim after the coarse -ss seek for frame-accurate boundaries.
+    // After -ss, timestamps are rebased so actual_start becomes (actual_start - seek_to).
+    let trim_start = actual_start - seek_to;
+    let trim_end = trim_start + seg_duration;
     filters.push(format!(
         "trim=start={}:end={},setpts=PTS-STARTPTS",
-        actual_start, actual_end
+        trim_start, trim_end
     ));
 
     // Speed adjustment
@@ -383,7 +394,12 @@ pub fn extract_frames(
     let filter_chain = filters.join(",");
 
     let mut cmd = hidden_command(&ffmpeg);
+    // -ss before -i = fast demuxer seek (no decoding of skipped frames)
+    // -t limits how much we read after the seek point
+    let read_duration = seg_duration + seek_margin + 1.0; // enough to cover trim window
     cmd.args([
+        "-ss", &format!("{:.3}", seek_to),
+        "-t", &format!("{:.3}", read_duration),
         "-i", path,
         "-vf", &filter_chain,
         "-pix_fmt", "rgba",
@@ -638,10 +654,11 @@ pub fn export_modified_video(
 
 /// Build the video filter chain for a single segment export.
 /// Shared helper for both single and multi-segment MP4 export.
+/// `trim_start` and `trim_end` are relative to the -ss seek point (not absolute).
 fn build_segment_filter_chain(
     metadata: &VideoMetadata,
-    start: f64,
-    end: f64,
+    trim_start: f64,
+    trim_end: f64,
     speed: f64,
     crop: Option<CropRect>,
     output_width: Option<u32>,
@@ -649,10 +666,10 @@ fn build_segment_filter_chain(
 ) -> String {
     let mut filters = Vec::new();
 
-    // Trim
+    // Fine-grained trim (relative to the -ss seek point) for frame-accurate boundaries
     filters.push(format!(
         "trim=start={}:end={},setpts=PTS-STARTPTS",
-        start, end
+        trim_start, trim_end
     ));
 
     // Speed
@@ -686,6 +703,7 @@ fn build_segment_filter_chain(
 }
 
 /// Export a single segment to an MP4 file.
+/// Uses -ss (input seeking) before -i for fast demuxer-level seeking.
 fn export_single_segment(
     ffmpeg_path: &str,
     input_path: &str,
@@ -698,12 +716,26 @@ fn export_single_segment(
     output_width: Option<u32>,
     output_height: Option<u32>,
 ) -> Result<(), String> {
+    let seek_margin = 1.0_f64;
+    let seek_to = (start - seek_margin).max(0.0);
+    let seg_duration = end - start;
+
+    // Trim offsets relative to the -ss seek point
+    let trim_start = start - seek_to;
+    let trim_end = trim_start + seg_duration;
+
     let filter_chain = build_segment_filter_chain(
-        metadata, start, end, speed, crop, output_width, output_height,
+        metadata, trim_start, trim_end, speed, crop, output_width, output_height,
     );
 
+    // Read enough from the seek point to cover the segment + margin
+    let read_duration = seg_duration + seek_margin + 1.0;
+
     let mut cmd = hidden_command(ffmpeg_path);
+    // -ss before -i = fast demuxer seek (avoids decoding skipped frames)
     cmd.args([
+        "-ss", &format!("{:.3}", seek_to),
+        "-t", &format!("{:.3}", read_duration),
         "-i", input_path,
         "-vf", &filter_chain,
         "-an",

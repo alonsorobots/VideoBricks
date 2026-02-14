@@ -60,7 +60,7 @@ export default function AboutModal({ open, onClose }: AboutModalProps) {
           >
             <div
               className="pointer-events-auto bg-surface rounded-xl border border-border shadow-2xl
-                w-[380px] max-h-[80vh] overflow-y-auto"
+                w-[440px] max-h-[150vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
@@ -68,7 +68,7 @@ export default function AboutModal({ open, onClose }: AboutModalProps) {
                 <img
                   src="/app-icon.png"
                   alt="VideoBricks"
-                  className="w-16 h-16 rounded-xl mb-3"
+                  className="w-[200px] h-[200px] rounded-xl mb-3"
                   draggable={false}
                 />
                 <h2 className="text-lg font-semibold text-text-primary">
@@ -77,10 +77,6 @@ export default function AboutModal({ open, onClose }: AboutModalProps) {
                 <span className="text-xs text-text-tertiary mt-0.5">
                   Version 1.0.0
                 </span>
-                <p className="text-xs text-text-secondary mt-2 text-center leading-relaxed max-w-[280px]">
-                  Convert videos to high-quality GIFs and optimized MP4s.
-                  Multi-segment timeline editing with AI shot detection.
-                </p>
               </div>
 
               {/* Divider */}

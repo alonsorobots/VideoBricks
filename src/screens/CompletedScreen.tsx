@@ -259,7 +259,7 @@ export default function CompletedScreen({
         {isMultiple && fadeOpacity > 0 && (
           <div
             className="absolute inset-0 pointer-events-none flex items-center justify-center"
-            style={{ backgroundColor: `rgba(37, 41, 49, ${fadeOpacity})` }}
+            style={{ backgroundColor: `rgba(27, 20, 31, ${fadeOpacity * 0.9})` }}
           >
             {isLast && (
               <span className="text-text-secondary text-lg font-semibold">
