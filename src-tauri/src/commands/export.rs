@@ -150,7 +150,7 @@ pub async fn convert_to_mp4(
     Ok(results)
 }
 
-/// Reveal a file in the system file explorer (Windows Explorer)
+/// Reveal a file in the system file explorer
 #[tauri::command]
 pub async fn reveal_in_explorer(path: String) -> Result<(), String> {
     #[cfg(windows)]
@@ -160,9 +160,15 @@ pub async fn reveal_in_explorer(path: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| format!("Failed to open explorer: {}", e))?;
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
-        // Fallback for non-Windows: open containing directory
+        Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open Finder: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
         let parent = std::path::Path::new(&path)
             .parent()
             .map(|p| p.to_string_lossy().to_string())

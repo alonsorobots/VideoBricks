@@ -26,15 +26,43 @@ Convert videos to high-quality GIFs and optimized MP4s with a multi-segment time
 
 ## Installation
 
-### For End Users (Recommended)
+### macOS
 
-Download the latest installer from the [GitHub Releases](../../releases) page:
+The easiest way to install is via [Homebrew](https://brew.sh/). This handles everything -- no scary warnings, no extra steps:
 
-| Platform | Format |
-|----------|--------|
-| Windows  | `.exe` (NSIS) or `.msi` |
+```bash
+brew install --cask alonsorobots/tap/videobricks
+```
 
-The installer includes everything you need -- FFmpeg, the TransNetV2 AI model, and all dependencies are bundled. No separate downloads or setup required.
+This installs VideoBricks and its FFmpeg dependency automatically. To update later, run `brew upgrade --cask videobricks`.
+
+<details>
+<summary>Alternative: manual install from DMG</summary>
+
+Download `VideoBricks_x.x.x_aarch64.dmg` from the [GitHub Releases](../../releases) page, open it, and drag VideoBricks to Applications.
+
+Because the app is not signed with an Apple Developer certificate, macOS Gatekeeper will block the first launch. To allow it:
+
+- **Option A**: Right-click (or Control-click) the app > **Open** > click **Open** in the dialog.
+- **Option B**: Run this in Terminal after copying to Applications:
+
+```bash
+xattr -cr /Applications/VideoBricks.app
+```
+
+You also need FFmpeg installed separately:
+
+```bash
+brew install ffmpeg
+```
+
+</details>
+
+### Windows
+
+Download the `.exe` (NSIS) or `.msi` installer from the [GitHub Releases](../../releases) page. Everything is bundled -- FFmpeg, the TransNetV2 AI model, and all dependencies. No separate downloads or setup required.
+
+---
 
 ### For Developers
 
@@ -58,11 +86,14 @@ cd VideoBricks
 npm install
 
 # Place FFmpeg binaries (not committed to the repo due to size ~190 MB each)
-# Download from https://www.gyan.dev/ffmpeg/builds/ (Windows)
-# Copy ffmpeg.exe and ffprobe.exe into src-tauri/binaries/
+#
+# Windows: download from https://www.gyan.dev/ffmpeg/builds/
 mkdir -p src-tauri/binaries
 cp /path/to/ffmpeg.exe src-tauri/binaries/
 cp /path/to/ffprobe.exe src-tauri/binaries/
+#
+# macOS: install via Homebrew (no need to copy binaries -- found via PATH)
+brew install ffmpeg
 
 # Install Python dependencies for shot detection
 pip install -r src-tauri/scripts/requirements.txt
@@ -78,39 +109,6 @@ npm run tauri dev
 npm run tauri build
 # Output: src-tauri/target/release/bundle/
 ```
-
----
-
-## TransNetV2 Shot Detection
-
-The AI shot detection model (`transnetv2.onnx`, ~30 MB) is committed to the repo and bundled with the installer. It uses [ONNX Runtime](https://onnxruntime.ai/) for inference -- no PyTorch, conda, or GPU required.
-
-The only runtime requirement is Python 3.9+ with the packages listed in `src-tauri/scripts/requirements.txt`:
-
-```
-onnxruntime
-numpy
-ffmpeg-python
-```
-
-If Python isn't available, the "Find Shots" button simply won't work -- everything else in the app functions normally.
-
-### Re-exporting the ONNX model (developer note)
-
-If you need to regenerate the ONNX model from the original PyTorch weights (e.g., for a newer version of TransNetV2), use the export script. This is a one-time step that requires PyTorch:
-
-```bash
-# Clone TransNetV2
-git clone https://github.com/soCzech/TransNetV2.git ~/TransNetV2
-
-# Export (requires a Python env with PyTorch)
-python src-tauri/scripts/export_transnet_onnx.py \
-    --weights ~/TransNetV2/inference-pytorch/transnetv2-pytorch-weights.pth
-```
-
-### PyTorch fallback
-
-If the `.onnx` file is missing for some reason, the script automatically falls back to PyTorch inference via a conda environment named `yt_filter`. This requires a full TransNetV2 + PyTorch setup (~2 GB). See `src-tauri/scripts/transnet_detect.py` for details.
 
 ---
 

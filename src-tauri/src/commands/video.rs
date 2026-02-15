@@ -100,23 +100,54 @@ pub async fn find_shots(
                 .ok_or_else(|| "transnet_detect.py script not found".to_string())?
         };
 
-        // Always use conda env (yt_filter) which has numpy, onnxruntime, etc.
         // If the ONNX model exists next to the script, pass --model so the
         // script uses ONNX Runtime instead of the heavier PyTorch backend.
         let onnx_model = script_path.with_file_name("transnetv2.onnx");
-        let conda_exe = ffmpeg::find_conda()?;
 
+        // Build the python command. Strategy:
+        //   1. Try running `python` directly (works if the active conda env or
+        //      system Python has the required packages).
+        //   2. If that's not available, fall back to `conda run` with a known
+        //      env name (VIDEOBRICKS_CONDA_ENV, default "VideoBricks" on
+        //      macOS/Linux, "yt_filter" on Windows).
         let mut cmd = {
-            let mut c = ffmpeg::hidden_command(&conda_exe);
-            c.args([
-                "run",
-                "-n", "yt_filter",
-                "python", "-u",
-                script_path.to_str().unwrap_or("transnet_detect.py"),
-                &path,
-                "--threshold",
-                &threshold.to_string(),
-            ]);
+            let use_direct_python = ffmpeg::hidden_command("python")
+                .args(["-c", "import onnxruntime, numpy, ffmpeg"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+
+            let mut c;
+            if use_direct_python {
+                c = ffmpeg::hidden_command("python");
+                c.args([
+                    "-u",
+                    script_path.to_str().unwrap_or("transnet_detect.py"),
+                    &path,
+                    "--threshold",
+                    &threshold.to_string(),
+                ]);
+            } else {
+                let conda_exe = ffmpeg::find_conda()?;
+                #[cfg(windows)]
+                let default_env = "yt_filter";
+                #[cfg(not(windows))]
+                let default_env = "VideoBricks";
+                let env_name = std::env::var("VIDEOBRICKS_CONDA_ENV")
+                    .unwrap_or_else(|_| default_env.to_string());
+                c = ffmpeg::hidden_command(&conda_exe);
+                c.args([
+                    "run",
+                    "-n", &env_name,
+                    "python", "-u",
+                    script_path.to_str().unwrap_or("transnet_detect.py"),
+                    &path,
+                    "--threshold",
+                    &threshold.to_string(),
+                ]);
+            }
             if onnx_model.exists() {
                 c.args(["--model", onnx_model.to_str().unwrap_or("transnetv2.onnx")]);
             }

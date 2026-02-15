@@ -49,6 +49,37 @@ fn main() {
                     }
                 }
             }
+
+            #[cfg(target_os = "macos")]
+            {
+                use cocoa::appkit::{NSColor, NSWindow};
+                use cocoa::base::{id, nil};
+                use objc::{msg_send, sel, sel_impl};
+
+                let window = app.get_webview_window("main").unwrap();
+
+                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                if let Ok(handle) = window.window_handle() {
+                    if let RawWindowHandle::AppKit(h) = handle.as_raw() {
+                        // AppKit handle gives us the NSView; get NSWindow via [view window]
+                        let ns_view: id = h.ns_view.as_ptr() as id;
+                        unsafe {
+                            let ns_window: id = msg_send![ns_view, window];
+                            // #1f1c24 => R=31, G=28, B=36 (same as Windows title bar)
+                            let bg_color = NSColor::colorWithSRGBRed_green_blue_alpha_(
+                                nil,
+                                31.0 / 255.0,
+                                28.0 / 255.0,
+                                36.0 / 255.0,
+                                1.0,
+                            );
+                            ns_window.setBackgroundColor_(bg_color);
+                            ns_window.setTitlebarAppearsTransparent_(true);
+                        }
+                    }
+                }
+            }
+
             Ok(())
         })
         .on_window_event(|_window, event| {

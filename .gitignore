@@ -7,6 +7,8 @@ src-tauri/target/
 
 # Bundled binaries (not committed -- download separately)
 src-tauri/binaries/*.exe
+src-tauri/binaries/ffmpeg
+src-tauri/binaries/ffprobe
 
 # ONNX model (uncomment to exclude from git if using external hosting instead)
 # src-tauri/scripts/*.onnx
@@ -18,6 +20,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Local cargo config (machine-specific linker overrides)
+src-tauri/.cargo/
 
 # Environment
 .env

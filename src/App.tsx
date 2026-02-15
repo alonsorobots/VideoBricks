@@ -161,7 +161,7 @@ export default function App() {
       try {
         // Convert to temp directory first (like GIF), user saves afterwards
         const tempDir = await api.getTempDir();
-        const outputPath = `${tempDir}\\${baseName}.mp4`;
+        const outputPath = `${tempDir}/${baseName}.mp4`;
 
         const mp4s = await api.convertToMp4(outputPath, conversionSettings);
         setScreen({

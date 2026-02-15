@@ -39,31 +39,54 @@ pub fn unregister_pid(pid: u32) {
 pub fn kill_all_children() {
     if let Ok(mut pids) = ACTIVE_PIDS.lock() {
         for pid in pids.drain(..) {
-            // /F = force, /T = kill child tree
-            let _ = hidden_command("taskkill")
-                .args(["/F", "/T", "/PID", &pid.to_string()])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
+            #[cfg(windows)]
+            {
+                // /F = force, /T = kill child tree
+                let _ = hidden_command("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+            #[cfg(not(windows))]
+            {
+                // Send SIGTERM to the process group to kill child tree
+                unsafe {
+                    libc::kill(pid as i32, libc::SIGTERM);
+                }
+            }
         }
     }
 }
 
 /// Locate the conda executable.
 pub fn find_conda() -> Result<String, String> {
-    // Try common locations
-    let mut candidates: Vec<String> = vec![
-        "conda".into(),
-        "conda.exe".into(),
-        r"C:\ProgramData\miniforge3\Scripts\conda.exe".into(),
-        r"C:\ProgramData\Anaconda3\Scripts\conda.exe".into(),
-    ];
-    // Add user-local conda locations dynamically
-    if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
-        for subdir in ["miniforge3", "miniconda3", "anaconda3", "mambaforge"] {
-            candidates.push(format!(r"{}\{}\Scripts\conda.exe", home, subdir));
+    let mut candidates: Vec<String> = vec!["conda".into()];
+
+    #[cfg(windows)]
+    {
+        candidates.push("conda.exe".into());
+        candidates.push(r"C:\ProgramData\miniforge3\Scripts\conda.exe".into());
+        candidates.push(r"C:\ProgramData\Anaconda3\Scripts\conda.exe".into());
+        if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+            for subdir in ["miniforge3", "miniconda3", "anaconda3", "mambaforge"] {
+                candidates.push(format!(r"{}\{}\Scripts\conda.exe", home, subdir));
+            }
         }
     }
+
+    #[cfg(not(windows))]
+    {
+        candidates.push("/opt/homebrew/bin/conda".into());
+        candidates.push("/usr/local/bin/conda".into());
+        if let Ok(home) = std::env::var("HOME") {
+            for subdir in ["miniforge3", "miniconda3", "anaconda3", "mambaforge"] {
+                candidates.push(format!("{}/{}/bin/conda", home, subdir));
+                candidates.push(format!("{}/{}/condabin/conda", home, subdir));
+            }
+        }
+    }
+
     for candidate in candidates.iter() {
         let status = hidden_command(candidate)
             .arg("--version")
@@ -118,7 +141,10 @@ fn find_ffprobe() -> Option<String> {
     // Check if bundled next to our executable
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            #[cfg(windows)]
             let bundled = dir.join("ffprobe.exe");
+            #[cfg(not(windows))]
+            let bundled = dir.join("ffprobe");
             if bundled.exists() {
                 return Some(bundled.to_string_lossy().to_string());
             }
@@ -134,13 +160,20 @@ fn find_ffprobe() -> Option<String> {
         return Some("ffprobe".to_string());
     }
 
-    // Common Windows install locations
-    let common_paths = [
+    // Common install locations
+    #[cfg(windows)]
+    let common_paths: &[&str] = &[
         r"C:\ffmpeg\bin\ffprobe.exe",
         r"C:\Program Files\ffmpeg\bin\ffprobe.exe",
         r"C:\tools\ffmpeg\bin\ffprobe.exe",
     ];
-    for path in &common_paths {
+    #[cfg(not(windows))]
+    let common_paths: &[&str] = &[
+        "/opt/homebrew/bin/ffprobe",
+        "/usr/local/bin/ffprobe",
+        "/usr/bin/ffprobe",
+    ];
+    for path in common_paths {
         if Path::new(path).exists() {
             return Some(path.to_string());
         }
@@ -153,7 +186,10 @@ fn find_ffprobe() -> Option<String> {
 fn find_ffmpeg() -> Option<String> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            #[cfg(windows)]
             let bundled = dir.join("ffmpeg.exe");
+            #[cfg(not(windows))]
+            let bundled = dir.join("ffmpeg");
             if bundled.exists() {
                 return Some(bundled.to_string_lossy().to_string());
             }
@@ -168,12 +204,19 @@ fn find_ffmpeg() -> Option<String> {
         return Some("ffmpeg".to_string());
     }
 
-    let common_paths = [
+    #[cfg(windows)]
+    let common_paths: &[&str] = &[
         r"C:\ffmpeg\bin\ffmpeg.exe",
         r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
         r"C:\tools\ffmpeg\bin\ffmpeg.exe",
     ];
-    for path in &common_paths {
+    #[cfg(not(windows))]
+    let common_paths: &[&str] = &[
+        "/opt/homebrew/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/usr/bin/ffmpeg",
+    ];
+    for path in common_paths {
         if Path::new(path).exists() {
             return Some(path.to_string());
         }
