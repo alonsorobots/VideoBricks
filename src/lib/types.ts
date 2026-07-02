@@ -73,6 +73,7 @@ export interface ConversionProgressEvent {
   completedFrames: number;
   totalFrames: number;
   progress: number;
+  stage: "extracting" | "preparing" | "encoding";
 }
 
 /** Per-edit state that should persist across screen transitions */

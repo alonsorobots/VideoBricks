@@ -1,15 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import CircularProgress from "../components/CircularProgress";
+import type { ConversionProgressEvent } from "../lib/types";
 
 interface ConversionScreenProps {
   progress: number; // 0-1
+  stage?: ConversionProgressEvent["stage"] | null;
   format?: "gif" | "mp4";
   onCancel: () => void;
 }
 
+const STAGE_LABELS: Record<ConversionProgressEvent["stage"], string> = {
+  extracting: "Extracting frames...",
+  preparing: "Preparing frames...",
+  encoding: "Encoding GIF...",
+};
+
 export default function ConversionScreen({
   progress,
+  stage = null,
   format = "gif",
   onCancel,
 }: ConversionScreenProps) {
@@ -50,6 +59,8 @@ export default function ConversionScreen({
   }, [onCancel]);
 
   const percentage = Math.round(progress * 100);
+  const stageLabel =
+    format === "gif" && stage ? STAGE_LABELS[stage] : null;
 
   return (
     <div className="h-full flex flex-col items-center justify-center p-8">
@@ -70,7 +81,7 @@ export default function ConversionScreen({
         className="mt-6 text-center"
       >
         <p className="text-lg font-medium text-text-primary">
-          {format === "mp4" ? "Exporting MP4..." : "Converting to GIF..."}
+          {format === "mp4" ? "Exporting MP4..." : stageLabel ?? "Converting to GIF..."}
         </p>
         <p className="text-sm text-text-secondary mt-1 tabular-nums">
           {percentage}%

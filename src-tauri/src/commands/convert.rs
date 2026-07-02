@@ -27,6 +27,7 @@ pub struct ConversionProgressEvent {
     pub completed_frames: u32,
     pub total_frames: u32,
     pub progress: f64,
+    pub stage: String,
 }
 
 /// A single GIF result returned to the frontend
@@ -70,15 +71,15 @@ pub async fn convert_to_gif(
         // Split mode: convert each segment separately
         tokio::task::spawn_blocking(move || {
             gifski_bridge::convert_to_gifs_split(&settings, cancelled_clone, move |progress| {
-                let p = progress.completed_frames as f64 / progress.total_frames.max(1) as f64;
                 let _ = app_handle.emit("conversion-progress", ConversionProgressEvent {
-                    completed_frames: progress.completed_frames,
+                    completed_frames: (progress.progress * progress.total_frames as f64).round() as u32,
                     total_frames: progress.total_frames,
-                    progress: p,
+                    progress: progress.progress,
+                    stage: progress.stage.to_string(),
                 });
                 #[cfg(windows)]
                 if let Some(ref win) = window {
-                    crate::taskbar::set_progress(win, p);
+                    crate::taskbar::set_progress(win, progress.progress);
                 }
             })
         })
@@ -88,15 +89,15 @@ pub async fn convert_to_gif(
         // Merge mode: all segments into one GIF
         let data = tokio::task::spawn_blocking(move || {
             gifski_bridge::convert_to_gif(&settings, cancelled_clone, move |progress| {
-                let p = progress.completed_frames as f64 / progress.total_frames.max(1) as f64;
                 let _ = app_handle.emit("conversion-progress", ConversionProgressEvent {
-                    completed_frames: progress.completed_frames,
+                    completed_frames: (progress.progress * progress.total_frames as f64).round() as u32,
                     total_frames: progress.total_frames,
-                    progress: p,
+                    progress: progress.progress,
+                    stage: progress.stage.to_string(),
                 });
                 #[cfg(windows)]
                 if let Some(ref win) = window {
-                    crate::taskbar::set_progress(win, p);
+                    crate::taskbar::set_progress(win, progress.progress);
                 }
             })
         })

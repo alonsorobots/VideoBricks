@@ -35,8 +35,99 @@ pub struct ConversionSettings {
 
 /// Progress callback info
 pub struct ConversionProgress {
-    pub completed_frames: u32,
+    pub progress: f64,
     pub total_frames: u32,
+    pub stage: &'static str,
+}
+
+/// Ensures progress only ever moves forward, even when multiple threads report.
+struct ProgressTracker {
+    max_permille: AtomicU32,
+    total_frames: u32,
+}
+
+impl ProgressTracker {
+    fn new(total_frames: u32) -> Self {
+        Self {
+            max_permille: AtomicU32::new(0),
+            total_frames: total_frames.max(1),
+        }
+    }
+
+    fn set_total_frames(&mut self, total_frames: u32) {
+        self.total_frames = total_frames.max(1);
+    }
+
+    fn report(&self, stage: &'static str, progress: f64, on_progress: &dyn Fn(ConversionProgress)) {
+        let permille = (progress.clamp(0.0, 1.0) * 1000.0).round() as u32;
+        let mut current = self.max_permille.load(Ordering::Relaxed);
+        while permille > current {
+            match self.max_permille.compare_exchange_weak(
+                current,
+                permille,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    let p = permille as f64 / 1000.0;
+                    on_progress(ConversionProgress {
+                        progress: p,
+                        total_frames: self.total_frames,
+                        stage,
+                    });
+                    return;
+                }
+                Err(v) => current = v,
+            }
+        }
+    }
+}
+
+fn estimate_total_frames(settings: &ConversionSettings) -> u32 {
+    settings
+        .segments
+        .iter()
+        .map(|seg| {
+            let duration = (seg.end - seg.start) / settings.speed;
+            let source_frames = (duration * settings.fps as f64).ceil() as u32;
+            if settings.bounce && source_frames > 1 {
+                source_frames * 2 - 1
+            } else {
+                source_frames
+            }
+        })
+        .sum()
+}
+
+// FFmpeg frame extraction is usually fast; gifski encoding dominates runtime.
+const EXTRACTION_WEIGHT: f64 = 0.10;
+
+/// Map per-stage progress (0-1) to an overall 0-1 value.
+fn overall_progress(stage: &'static str, stage_progress: f64) -> f64 {
+    let stage_progress = stage_progress.clamp(0.0, 1.0);
+    match stage {
+        "extracting" => stage_progress * EXTRACTION_WEIGHT,
+        "encoding" => EXTRACTION_WEIGHT + stage_progress * (1.0 - EXTRACTION_WEIGHT),
+        _ => stage_progress,
+    }
+}
+
+fn report_stage_progress(
+    tracker: &ProgressTracker,
+    on_progress: &dyn Fn(ConversionProgress),
+    stage: &'static str,
+    stage_progress: f64,
+) {
+    tracker.report(stage, overall_progress(stage, stage_progress), on_progress);
+}
+
+fn rgba_bytes_to_pixels(rgba: Vec<u8>) -> Vec<RGBA8> {
+    debug_assert_eq!(rgba.len() % 4, 0);
+    let len = rgba.len() / 4;
+    let cap = rgba.capacity() / 4;
+    let ptr = rgba.as_ptr() as *mut RGBA8;
+    std::mem::forget(rgba);
+    unsafe { Vec::from_raw_parts(ptr, len, cap) }
 }
 
 /// Convert a video to GIF using gifski.
@@ -44,15 +135,27 @@ pub struct ConversionProgress {
 pub fn convert_to_gif(
     settings: &ConversionSettings,
     cancelled: Arc<AtomicBool>,
-    on_progress: impl Fn(ConversionProgress) + Send + 'static,
+    on_progress: impl Fn(ConversionProgress) + Send + Clone + 'static,
 ) -> Result<Vec<u8>, String> {
+    let estimated_total = estimate_total_frames(settings).max(1);
+    let mut tracker = ProgressTracker::new(estimated_total);
+    report_stage_progress(&tracker, &on_progress, "extracting", 0.0);
+
     // 1. Extract frames from all segments and concatenate
     let mut frames: Vec<FrameData> = Vec::new();
+    let segment_count = settings.segments.len().max(1);
 
-    for segment in &settings.segments {
+    for (segment_index, segment) in settings.segments.iter().enumerate() {
         if cancelled.load(Ordering::Relaxed) {
             return Err("Conversion cancelled".to_string());
         }
+
+        report_stage_progress(
+            &tracker,
+            &on_progress,
+            "extracting",
+            segment_index as f64 / segment_count as f64,
+        );
 
         let seg_frames = ffmpeg::extract_frames(
             &settings.source_path,
@@ -61,6 +164,8 @@ pub fn convert_to_gif(
             Some(segment.end),
             settings.speed,
             settings.crop,
+            settings.width,
+            settings.height,
         )?;
 
         // Re-timestamp frames so they follow sequentially after previous segments
@@ -77,7 +182,16 @@ pub fn convert_to_gif(
                 - frames.first().map_or(original_start, |_| 0.0));
             frames.push(f);
         }
+
+        report_stage_progress(
+            &tracker,
+            &on_progress,
+            "extracting",
+            (segment_index + 1) as f64 / segment_count as f64,
+        );
     }
+
+    report_stage_progress(&tracker, &on_progress, "extracting", 1.0);
 
     // Fix: re-assign presentation timestamps sequentially based on fps
     let frame_interval = 1.0 / settings.fps as f64;
@@ -96,6 +210,12 @@ pub fn convert_to_gif(
     } else {
         source_count
     };
+    let total_frames_u32 = total_frames.max(1) as u32;
+    tracker.set_total_frames(total_frames_u32);
+    // Switch stage label; progress stays at the extraction ceiling (~10%).
+    tracker.report("encoding", EXTRACTION_WEIGHT, &on_progress);
+
+    let tracker = Arc::new(tracker);
 
     let repeat = if settings.loop_forever {
         Repeat::Infinite
@@ -127,22 +247,25 @@ pub fn convert_to_gif(
     let cancelled_clone = cancelled.clone();
 
     // Spawn writer thread
+    let progress_for_writer = on_progress.clone();
+    let tracker_for_writer = tracker.clone();
     let writer_thread = thread::spawn(move || {
         let mut buf = GifBuffer {
             data: gif_data_clone,
         };
         let mut reporter = ProgressReporter {
             completed: completed_clone,
-            total: total_frames as u32,
+            total: total_frames_u32,
             cancelled: cancelled_clone,
-            on_progress: Box::new(on_progress),
+            tracker: tracker_for_writer,
+            on_progress: Box::new(move |p| progress_for_writer(p)),
         };
         writer
             .write(&mut buf, &mut reporter)
             .map_err(|e| format!("GIF write failed: {}", e))
     });
 
-    // Add frames to the collector
+    // Add frames to the collector (encoding progress is reported by the writer thread)
     let add_result = add_frames_to_collector(
         &collector,
         &frames,
@@ -179,17 +302,7 @@ pub fn convert_to_gifs_split(
 ) -> Result<Vec<Vec<u8>>, String> {
     let mut results = Vec::new();
 
-    // Pre-estimate total frames across all segments so we can report unified progress.
-    // Each segment's frame count = ceil((end - start) / speed * fps), with bounce doubling.
-    let estimated_total: u32 = settings.segments.iter().map(|seg| {
-        let duration = (seg.end - seg.start) / settings.speed;
-        let source_frames = (duration * settings.fps as f64).ceil() as u32;
-        if settings.bounce && source_frames > 1 {
-            source_frames * 2 - 1
-        } else {
-            source_frames
-        }
-    }).sum();
+    let estimated_total = estimate_total_frames(settings).max(1);
 
     // Shared offset: how many frames have been completed in prior segments
     let frame_offset = Arc::new(AtomicU32::new(0));
@@ -206,20 +319,6 @@ pub fn convert_to_gifs_split(
         let total = estimated_total;
         let progress_cb = on_progress.clone();
         let current_offset = offset.load(Ordering::Relaxed);
-
-        let gif_data = convert_to_gif(
-            &seg_settings,
-            cancelled.clone(),
-            move |p: ConversionProgress| {
-                // Report with global offset so progress is continuous
-                progress_cb(ConversionProgress {
-                    completed_frames: current_offset + p.completed_frames,
-                    total_frames: total,
-                });
-            },
-        )?;
-
-        // After this segment completes, advance the offset by the segment's total frames
         let seg_duration = (segment.end - segment.start) / settings.speed;
         let seg_frames = (seg_duration * settings.fps as f64).ceil() as u32;
         let seg_total = if settings.bounce && seg_frames > 1 {
@@ -227,6 +326,21 @@ pub fn convert_to_gifs_split(
         } else {
             seg_frames
         };
+
+        let gif_data = convert_to_gif(
+            &seg_settings,
+            cancelled.clone(),
+            move |p: ConversionProgress| {
+                let global = (current_offset as f64 + p.progress * seg_total as f64)
+                    / total.max(1) as f64;
+                progress_cb(ConversionProgress {
+                    progress: global,
+                    total_frames: total,
+                    stage: p.stage,
+                });
+            },
+        )?;
+
         frame_offset.fetch_add(seg_total, Ordering::Relaxed);
 
         results.push(gif_data);
@@ -254,11 +368,7 @@ fn add_frames_to_collector(
             return Err("Conversion cancelled".to_string());
         }
 
-        let pixels: Vec<RGBA8> = frame
-            .rgba
-            .chunks_exact(4)
-            .map(|c| RGBA8::new(c[0], c[1], c[2], c[3]))
-            .collect();
+        let pixels = rgba_bytes_to_pixels(frame.rgba.clone());
 
         let img = ImgVec::new(pixels, frame.width as usize, frame.height as usize);
 
@@ -271,11 +381,7 @@ fn add_frames_to_collector(
             let reverse_index = total_frames - i - 1;
             let reverse_timestamp = reverse_index as f64 / fps;
 
-            let pixels2: Vec<RGBA8> = frame
-                .rgba
-                .chunks_exact(4)
-                .map(|c| RGBA8::new(c[0], c[1], c[2], c[3]))
-                .collect();
+            let pixels2 = rgba_bytes_to_pixels(frame.rgba.clone());
 
             let img2 = ImgVec::new(pixels2, frame.width as usize, frame.height as usize);
 
@@ -313,6 +419,7 @@ struct ProgressReporter {
     completed: Arc<AtomicU32>,
     total: u32,
     cancelled: Arc<AtomicBool>,
+    tracker: Arc<ProgressTracker>,
     on_progress: Box<dyn Fn(ConversionProgress) + Send>,
 }
 
@@ -322,10 +429,12 @@ impl gifski::progress::ProgressReporter for ProgressReporter {
             return false; // abort
         }
         let completed = self.completed.fetch_add(1, Ordering::Relaxed) + 1;
-        (self.on_progress)(ConversionProgress {
-            completed_frames: completed,
-            total_frames: self.total,
-        });
+        let stage_progress = completed as f64 / self.total.max(1) as f64;
+        self.tracker.report(
+            "encoding",
+            overall_progress("encoding", stage_progress),
+            self.on_progress.as_ref(),
+        );
         true // continue
     }
 

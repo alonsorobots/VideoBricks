@@ -33,6 +33,9 @@ export default function App() {
   const [screen, setScreen] = useState<AppScreen>({ type: "start" });
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [progress, setProgress] = useState(0);
+  const [conversionStage, setConversionStage] = useState<
+    ConversionProgressEvent["stage"] | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
 
   // Persist edit-level state across screen transitions (trim, crop, dimensions)
@@ -75,7 +78,8 @@ export default function App() {
     const unlisten = listen<ConversionProgressEvent>(
       "conversion-progress",
       (event) => {
-        setProgress(event.payload.progress);
+        setProgress((prev) => Math.max(prev, event.payload.progress));
+        setConversionStage(event.payload.stage);
       }
     );
     return () => {
@@ -110,6 +114,7 @@ export default function App() {
 
       setScreen({ type: "converting", settings: conversionSettings, format: "gif" });
       setProgress(0);
+      setConversionStage(null);
       setError(null);
 
       try {
@@ -156,6 +161,7 @@ export default function App() {
 
       setScreen({ type: "converting", settings: conversionSettings, format: "mp4" });
       setProgress(0);
+      setConversionStage(null);
       setError(null);
 
       try {
@@ -207,6 +213,7 @@ export default function App() {
     editStateRef.current = null;
     setScreen({ type: "start" });
     setProgress(0);
+    setConversionStage(null);
     setError(null);
   }, []);
 
@@ -299,6 +306,7 @@ export default function App() {
             >
               <ConversionScreen
                 progress={progress}
+                stage={conversionStage}
                 format={screen.format}
                 onCancel={handleCancelConversion}
               />

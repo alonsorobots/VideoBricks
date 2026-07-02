@@ -129,6 +129,7 @@ pub async fn convert_to_mp4(
                         completed_frames: completed as u32,
                         total_frames: total as u32,
                         progress: p,
+                        stage: "encoding".to_string(),
                     },
                 );
                 #[cfg(windows)]

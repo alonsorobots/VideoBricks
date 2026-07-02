@@ -366,6 +366,8 @@ pub fn extract_frames(
     end_time: Option<f64>,
     speed: f64,
     crop: Option<CropRect>,
+    output_width: Option<u32>,
+    output_height: Option<u32>,
 ) -> Result<Vec<FrameData>, String> {
     let ffmpeg = get_ffmpeg()?;
     let metadata = get_metadata(path)?;
@@ -424,11 +426,18 @@ pub fn extract_frames(
         }
     }
 
-    // Force exact output dimensions with scale filter to prevent any stride mismatch.
-    // FFmpeg's actual decoded dimensions may differ from metadata (coded vs display, SAR, etc.)
-    // so we always use an explicit scale at the end to guarantee the dimensions we expect.
-    let out_w = (crop_w.unwrap_or(metadata.width)).max(2) & !1; // ensure even and >= 2
-    let out_h = (crop_h.unwrap_or(metadata.height)).max(2) & !1;
+    // Scale to the user-selected output dimensions (or crop/source size as fallback).
+    // Scaling here — not only in gifski — keeps memory use and extraction time reasonable.
+    let out_w = output_width
+        .or(crop_w)
+        .unwrap_or(metadata.width)
+        .max(2)
+        & !1;
+    let out_h = output_height
+        .or(crop_h)
+        .unwrap_or(metadata.height)
+        .max(2)
+        & !1;
     filters.push(format!("scale={}:{}:flags=lanczos", out_w, out_h));
     // Explicit pixel format conversion at the end of the filter chain
     filters.push("format=rgba".to_string());
