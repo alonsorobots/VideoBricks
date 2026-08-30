@@ -2,6 +2,9 @@
   "bundle": {
     "resources": {
       "python": "python"
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   }
 }

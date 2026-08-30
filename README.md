@@ -39,7 +39,7 @@ This installs VideoBricks and its FFmpeg dependency automatically. To update lat
 <details>
 <summary>Alternative: manual install from DMG</summary>
 
-Download `VideoBricks_x.x.x_aarch64.dmg` from the [GitHub Releases](../../releases) page, open it, and drag VideoBricks to Applications.
+Download `VideoBricks_x.x.x_aarch64.dmg` from the [GitHub Releases](../../releases) page, open it, and drag VideoBricks to Applications. The app is ad-hoc signed rather than notarized, so the first launch needs a right-click on the app and **Open** (double-clicking shows "unidentified developer"). The Homebrew cask above avoids this.
 
 Because the app is not signed with an Apple Developer certificate, macOS Gatekeeper will block the first launch. To allow it:
 

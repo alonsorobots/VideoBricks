@@ -72,6 +72,21 @@ jobs:
       - name: Build
         run: npm run tauri build
 
+      # Tauri seals only the main binary unless given a signing identity, so a
+      # downloaded app fails verification and macOS calls it "damaged". This
+      # re-signs deeply and fails the job rather than shipping a broken DMG.
+      - name: Sign and verify macOS DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          found=0
+          for dmg in src-tauri/target/release/bundle/dmg/*.dmg; do
+            bash src-tauri/scripts/sign-macos-dmg.sh "$dmg"
+            found=1
+          done
+          [ "$found" = 1 ] || { echo "No DMG was produced"; exit 1; }
+
       - name: Collect artifacts
         shell: bash
         run: |
