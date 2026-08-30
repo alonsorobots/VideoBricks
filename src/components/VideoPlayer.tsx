@@ -124,7 +124,10 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
           ref={videoRef}
           src={src}
           className="w-full h-full object-contain"
-          preload="auto"
+          // "auto" makes the webview buffer the whole file up front, which on a
+          // multi-hundred-megabyte source stalls the edit screen for seconds and
+          // balloons memory. Metadata is all we need to show frame one and seek.
+          preload="metadata"
           onError={(e) => {
             const vid = e.currentTarget;
             setError(`Video load error: ${vid.error?.message || "unknown"}`);

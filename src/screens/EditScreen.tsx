@@ -8,6 +8,7 @@ import type {
   CropRect,
   EditState,
   TrimSegment,
+  ThumbnailReadyEvent,
 } from "../lib/types";
 import { FPS_MIN, FPS_MAX, SPEED_MIN, SPEED_MAX, SPEED_STEP, newSegmentId } from "../lib/types";
 import VideoPlayer from "../components/VideoPlayer";
@@ -113,6 +114,11 @@ export default function EditScreen({
   const [hasUsedFindShots, setHasUsedFindShots] = useState(false);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [detailThumbnails, setDetailThumbnails] = useState<string[] | null>(null);
+  const [thumbnailsLoading, setThumbnailsLoading] = useState(false);
+  const [thumbnailProgress, setThumbnailProgress] = useState<{ done: number; total: number } | null>(null);
+  // Monotonic ids so late results from a superseded request are ignored.
+  const thumbRequestIdRef = useRef(0);
+  const detailThumbRequestIdRef = useRef(0);
   const [videoRect, setVideoRect] = useState({ left: 0, top: 0, width: 0, height: 0 });
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const timelineContainerRef = useRef<HTMLDivElement>(null);
@@ -120,23 +126,39 @@ export default function EditScreen({
   // Convert path for video element src using Tauri asset protocol
   const videoSrc = useMemo(() => convertFileSrc(videoPath), [videoPath]);
 
-  // Load thumbnails for timeline -- recalculate count when container resizes
+  // Load thumbnails for timeline -- recalculate count when container resizes.
+  //
+  // Thumbnails arrive one at a time as `thumbnail-ready` events, so the strip
+  // fills in progressively instead of staying blank while a long video is
+  // processed. Each request carries an id; results from superseded requests
+  // (a resize, or a switch to a different video) are dropped.
   useEffect(() => {
     const container = timelineContainerRef.current;
     const THUMB_HEIGHT = 40;
     const THUMB_WIDTH_APPROX = 60; // approximate width per thumbnail
+    let disposed = false;
 
     const loadThumbnails = () => {
       const containerWidth = container ? container.getBoundingClientRect().width : 600;
       const count = Math.max(8, Math.ceil(containerWidth / THUMB_WIDTH_APPROX));
-      api.getVideoThumbnails(videoPath, count, THUMB_HEIGHT)
-        .then(setThumbnails)
-        .catch(() => { });
+      const id = ++thumbRequestIdRef.current;
+      setThumbnailsLoading(true);
+      setThumbnailProgress({ done: 0, total: count });
+      api.getVideoThumbnails(videoPath, count, THUMB_HEIGHT, id)
+        .then((all) => {
+          if (disposed || id !== thumbRequestIdRef.current) return;
+          setThumbnails(all);
+        })
+        .catch(() => { })
+        .finally(() => {
+          if (disposed || id !== thumbRequestIdRef.current) return;
+          setThumbnailsLoading(false);
+        });
     };
 
     loadThumbnails();
 
-    if (!container) return;
+    if (!container) return () => { disposed = true; };
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const observer = new ResizeObserver(() => {
       // Debounce to avoid excessive FFmpeg calls during drag-resize
@@ -145,10 +167,38 @@ export default function EditScreen({
     });
     observer.observe(container);
     return () => {
+      disposed = true;
       observer.disconnect();
       if (debounceTimer) clearTimeout(debounceTimer);
     };
   }, [videoPath]);
+
+  // Apply streamed thumbnails as each one finishes rendering.
+  useEffect(() => {
+    const unlisten = listen<ThumbnailReadyEvent>("thumbnail-ready", (event) => {
+      const p = event.payload;
+      if (p.detail) {
+        if (p.requestId !== detailThumbRequestIdRef.current) return;
+        setDetailThumbnails((prev) => {
+          const next = prev && prev.length === p.total ? [...prev] : new Array(p.total).fill("");
+          next[p.index] = p.dataUrl;
+          return next;
+        });
+      } else {
+        if (p.requestId !== thumbRequestIdRef.current) return;
+        setThumbnails((prev) => {
+          const next = prev.length === p.total ? [...prev] : new Array(p.total).fill("");
+          next[p.index] = p.dataUrl;
+          return next;
+        });
+        setThumbnailProgress((prev) => ({
+          done: Math.min(p.total, (prev?.done ?? 0) + 1),
+          total: p.total,
+        }));
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   // Track the actual video render rect within the container for crop overlay positioning
   useEffect(() => {
@@ -770,17 +820,27 @@ export default function EditScreen({
             }}
             onScrubStart={handleScrubStart}
             onScrubEnd={handleScrubEnd}
+            thumbnailsLoading={thumbnailsLoading}
+            thumbnailProgress={thumbnailProgress}
             onRequestDetailThumbnails={(startTime: number, endTime: number) => {
               const container = timelineContainerRef.current;
               const containerWidth = container ? container.getBoundingClientRect().width : 600;
               const rawCount = Math.max(8, Math.ceil(containerWidth / 60));
               // Cap detail thumbnail count for long videos to keep generation fast
               const count = metadata.duration > 300 ? Math.min(rawCount, 12) : rawCount;
-              api.getVideoThumbnailsRange(videoPath, count, 40, startTime, endTime)
-                .then(setDetailThumbnails)
+              const id = ++detailThumbRequestIdRef.current;
+              api.getVideoThumbnailsRange(videoPath, count, 40, startTime, endTime, id)
+                .then((all) => {
+                  if (id !== detailThumbRequestIdRef.current) return;
+                  setDetailThumbnails(all);
+                })
                 .catch(() => { });
             }}
-            onClearDetailThumbnails={() => setDetailThumbnails(null)}
+            onClearDetailThumbnails={() => {
+              // Bump the id so in-flight thumbnails for the closed overlay are dropped.
+              detailThumbRequestIdRef.current++;
+              setDetailThumbnails(null);
+            }}
           />
         </div>
       </div>

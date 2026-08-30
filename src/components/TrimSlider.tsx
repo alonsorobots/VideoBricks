@@ -9,6 +9,10 @@ interface TrimSliderProps {
   currentTime: number;
   thumbnails: string[];
   detailThumbnails: string[] | null;
+  /** True while the main strip is still being generated. */
+  thumbnailsLoading?: boolean;
+  /** How many of the strip's thumbnails have arrived so far. */
+  thumbnailProgress?: { done: number; total: number } | null;
   onSeek: (time: number) => void;
   onScrubStart?: () => void;
   onScrubEnd?: () => void;
@@ -86,6 +90,8 @@ export default function TrimSlider({
   currentTime,
   thumbnails,
   detailThumbnails,
+  thumbnailsLoading = false,
+  thumbnailProgress = null,
   onSeek,
   onScrubStart,
   onScrubEnd,
@@ -742,18 +748,39 @@ export default function TrimSlider({
       {/* Thumbnail strip background */}
       <div className="absolute inset-0 flex">
         {thumbnails.length > 0
-          ? thumbnails.map((thumb, i) => (
-            <img
-              key={i}
-              src={thumb}
-              alt=""
-              className="h-full flex-1 object-cover"
-              draggable={false}
-            />
-          ))
+          ? thumbnails.map((thumb, i) =>
+            thumb ? (
+              <img
+                key={i}
+                src={thumb}
+                alt=""
+                className="h-full flex-1 object-cover"
+                draggable={false}
+              />
+            ) : (
+              // Slot reserved for a thumbnail still being generated -- keeps the
+              // strip's geometry stable so it fills in rather than reflowing.
+              <div
+                key={i}
+                className="h-full flex-1 bg-gradient-to-r from-surface to-surface-raised"
+              />
+            )
+          )
           : <div className="w-full h-full bg-gradient-to-r from-surface to-surface-raised" />
         }
       </div>
+
+      {/* Thumbnail generation progress -- a thin bar along the top of the strip */}
+      {thumbnailsLoading && thumbnailProgress && thumbnailProgress.total > 0 && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-black/20 z-[12] pointer-events-none">
+          <div
+            className="h-full bg-accent/70 transition-[width] duration-200 ease-out"
+            style={{
+              width: `${Math.min(100, (thumbnailProgress.done / thumbnailProgress.total) * 100)}%`,
+            }}
+          />
+        </div>
+      )}
 
       {/* Dimmed areas outside all segments */}
       {dimRegions.map((r, i) => (
@@ -1021,7 +1048,12 @@ export default function TrimSlider({
         const detailRange = viewEnd - viewStart;
         const handlePct = detailRange > 0 ? ((handleTime - viewStart) / detailRange) * 100 : 50;
         const clampedPct = Math.max(0, Math.min(100, handlePct));
-        const hasDetailThumbs = detailThumbnails && detailThumbnails.length > 0;
+        // Detail thumbnails stream in one by one. Show the real ones as soon as
+        // they exist, drawn over the CSS-zoomed placeholder so the gaps where
+        // thumbnails have not arrived yet still show something recognizable.
+        const hasDetailThumbs = !!detailThumbnails?.some(Boolean);
+        const detailComplete =
+          !!detailThumbnails?.length && detailThumbnails.every(Boolean);
         const handleColor = SEGMENT_COLORS[segmentIndex % SEGMENT_COLORS.length];
 
         // Show the segment region within the zoomed view
@@ -1050,7 +1082,7 @@ export default function TrimSlider({
                 transform: `scaleX(${placeholderScaleX}) translateX(${placeholderTx}%)`,
                 transformOrigin: "0 0",
                 width: `${100 / placeholderScaleX}%`,
-                opacity: hasDetailThumbs ? 0 : 1,
+                opacity: detailComplete ? 0 : 1,
                 transition: "opacity 200ms ease-out",
               }}
             >
@@ -1071,20 +1103,24 @@ export default function TrimSlider({
                 className="absolute inset-0 flex detail-thumb-fadein"
                 style={{ animation: "detailFadeIn 200ms ease-out forwards" }}
               >
-                {detailThumbnails.map((thumb, i) => (
-                  <img
-                    key={`detail-${i}`}
-                    src={thumb}
-                    alt=""
-                    className="h-full flex-1 object-cover"
-                    draggable={false}
-                  />
-                ))}
+                {detailThumbnails?.map((thumb, i) =>
+                  thumb ? (
+                    <img
+                      key={`detail-${i}`}
+                      src={thumb}
+                      alt=""
+                      className="h-full flex-1 object-cover"
+                      draggable={false}
+                    />
+                  ) : (
+                    <div key={`detail-${i}`} className="h-full flex-1" />
+                  )
+                )}
               </div>
             )}
 
             {/* Subtle loading indicator while thumbnails load */}
-            {!hasDetailThumbs && (
+            {!detailComplete && (
               <div className="absolute top-0 left-0 right-0 h-0.5 overflow-hidden">
                 <div
                   className="h-full bg-accent/60 rounded-full"

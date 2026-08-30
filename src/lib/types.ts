@@ -68,6 +68,15 @@ export interface AppSettings {
   loopCount: number;
 }
 
+/** A single thumbnail streamed from the backend as it finishes rendering */
+export interface ThumbnailReadyEvent {
+  requestId: number;
+  index: number;
+  total: number;
+  dataUrl: string;
+  detail: boolean;
+}
+
 /** Progress event from conversion */
 export interface ConversionProgressEvent {
   completedFrames: number;
@@ -96,9 +105,15 @@ export const SEGMENT_COLORS = [
   "#F06292", // pink
 ];
 
-/** A single GIF result from conversion */
+/**
+ * A single GIF result from conversion.
+ *
+ * Rendered GIFs are written to a temp file and referenced by path rather than
+ * inlined as a base64 data URL -- output from a large source can run to hundreds
+ * of megabytes, which base64 inflates by a further third.
+ */
 export interface GifResult {
-  dataUrl: string;
+  filePath: string;
   fileSize: number;
 }
 

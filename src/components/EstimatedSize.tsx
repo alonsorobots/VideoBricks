@@ -12,6 +12,9 @@ export default function EstimatedSize({ settings, duration }: EstimatedSizeProps
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSettingsRef = useRef<string>("");
+  // Estimates run concurrently with whatever the user does next; a slow one
+  // must never clobber a newer result, so each carries a sequence number.
+  const seqRef = useRef(0);
 
   useEffect(() => {
     // Debounce estimation
@@ -23,17 +26,21 @@ export default function EstimatedSize({ settings, duration }: EstimatedSizeProps
       clearTimeout(debounceRef.current);
     }
 
+    // Estimation is now a small sample encode rather than a full conversion,
+    // so it can react much sooner than the old 1.5s wait.
     debounceRef.current = setTimeout(async () => {
+      const seq = ++seqRef.current;
       setLoading(true);
       try {
         const size = await api.estimateFileSize(settings);
+        if (seq !== seqRef.current) return;
         setEstimatedBytes(size);
       } catch {
         // Silently fail - estimation is best-effort
       } finally {
-        setLoading(false);
+        if (seq === seqRef.current) setLoading(false);
       }
-    }, 1500);
+    }, 600);
 
     return () => {
       if (debounceRef.current) {

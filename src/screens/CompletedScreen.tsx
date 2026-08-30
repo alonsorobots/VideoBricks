@@ -224,7 +224,7 @@ export default function CompletedScreen({
         <div className="checkerboard" onMouseDown={handleNativeDrag} onDragStart={suppressHtmlDrag}>
           {isGif ? (
             <img
-              src={(item as GifResult).dataUrl}
+              src={convertFileSrc((item as GifResult).filePath)}
               alt={isMultiple ? `GIF segment ${index + 1}` : "Converted GIF"}
               className={isMultiple ? "max-h-[200px] object-contain" : "max-w-full max-h-[340px] object-contain"}
               draggable={false}

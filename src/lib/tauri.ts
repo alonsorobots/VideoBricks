@@ -18,13 +18,21 @@ export async function getVideoMetadata(path: string): Promise<VideoMetadata> {
   return invoke("get_video_metadata", { path });
 }
 
-/** Get video thumbnails as base64 data URLs */
+/**
+ * Get video thumbnails as base64 data URLs.
+ *
+ * Individual thumbnails also arrive as `thumbnail-ready` events tagged with
+ * `requestId`, so the timeline can fill in as they are produced instead of
+ * waiting for the whole strip. Pass a monotonically increasing `requestId` and
+ * ignore events from superseded requests.
+ */
 export async function getVideoThumbnails(
   path: string,
   count: number,
-  thumbHeight: number
+  thumbHeight: number,
+  requestId = 0
 ): Promise<string[]> {
-  return invoke("get_video_thumbnails", { path, count, thumbHeight });
+  return invoke("get_video_thumbnails", { path, count, thumbHeight, requestId });
 }
 
 /** Get video thumbnails for a specific time range (detail trim mode) */
@@ -33,7 +41,8 @@ export async function getVideoThumbnailsRange(
   count: number,
   thumbHeight: number,
   startTime: number,
-  endTime: number
+  endTime: number,
+  requestId = 0
 ): Promise<string[]> {
   return invoke("get_video_thumbnails_range", {
     path,
@@ -41,6 +50,7 @@ export async function getVideoThumbnailsRange(
     thumbHeight,
     startTime,
     endTime,
+    requestId,
   });
 }
 
