@@ -1,0 +1,6 @@
+# Shell scripts must keep LF endings; CRLF makes them fail with
+# "bad interpreter" on the macOS/Linux CI runners.
+*.sh text eol=lf
+
+# PowerShell is fine either way, but keep it consistent.
+*.ps1 text eol=crlf

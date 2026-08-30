@@ -1,0 +1,114 @@
+# Builds installers for every supported platform and attaches them to the
+# GitHub release for the tag.
+#
+# Releases used to be built by hand on whichever machine was available, which
+# is why some versions shipped Windows only and others macOS only. Tagging now
+# produces all three.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and upload to (e.g. v1.0.4)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: macOS arm64
+          - os: macos-13
+            label: macOS x86_64
+          - os: windows-latest
+            label: Windows x64
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Always build the ref the workflow was started from. On a tag push that
+      # is the tag; on manual dispatch it is the branch you picked, which
+      # matters because the `tag` input may predate these vendor scripts.
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # FFmpeg and the Python runtime are gitignored (hundreds of MB), so each
+      # runner fetches them before bundling.
+      - name: Vendor FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -File src-tauri/scripts/vendor-ffmpeg.ps1
+
+      - name: Vendor Python runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -File src-tauri/scripts/vendor-python.ps1
+
+      - name: Vendor Python runtime (macOS)
+        if: runner.os == 'macOS'
+        run: bash src-tauri/scripts/vendor-python.sh
+
+      - name: Build
+        run: npm run tauri build
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          find src-tauri/target/release/bundle \
+            \( -name "*.dmg" -o -name "*.msi" -o -name "*-setup.exe" \) \
+            -exec cp {} artifacts/ \;
+          ls -la artifacts
+
+      # macOS builds for both architectures produce identically named DMGs;
+      # tag the arch so they do not collide as release assets.
+      - name: Disambiguate macOS artifact names
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          arch="${{ matrix.os == 'macos-14' && 'aarch64' || 'x86_64' }}"
+          cd artifacts
+          for f in *.dmg; do
+            [ -e "$f" ] || continue
+            case "$f" in
+              *"$arch"*) ;;
+              *) mv "$f" "${f%.dmg}_${arch}.dmg" ;;
+            esac
+          done
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          path: artifacts/*
+
+      - name: Upload to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" --title "VideoBricks $tag" --generate-notes
+          gh release upload "$tag" artifacts/* --clobber

@@ -87,18 +87,21 @@ npm install
 
 # Place FFmpeg binaries (not committed to the repo due to size ~190 MB each)
 #
-# Windows: download from https://www.gyan.dev/ffmpeg/builds/
-mkdir -p src-tauri/binaries
-cp /path/to/ffmpeg.exe src-tauri/binaries/
-cp /path/to/ffprobe.exe src-tauri/binaries/
+# Windows: fetch them automatically...
+pwsh -File src-tauri/scripts/vendor-ffmpeg.ps1
+# ...or drop your own into src-tauri/binaries/ffmpeg.exe and ffprobe.exe
 #
 # macOS: install via Homebrew (no need to copy binaries -- found via PATH)
 brew install ffmpeg
 
-# Vendor the self-contained Python runtime that ships with the Windows build
-# (downloads embeddable CPython + onnxruntime/numpy/ffmpeg-python, ~95 MB).
-# Not committed to the repo; only needed for Windows release builds.
+# Vendor the self-contained Python runtime that ships with the app
+# (CPython + onnxruntime/numpy/ffmpeg-python, ~90-95 MB). Not committed
+# to the repo; only needed for release builds.
+#
+# Windows:
 pwsh -File src-tauri/scripts/vendor-python.ps1
+# macOS:
+bash src-tauri/scripts/vendor-python.sh
 
 # Alternatively, for development, use your own Python for shot detection.
 # The app falls back to system Python (then conda) when no bundled runtime
@@ -113,6 +116,11 @@ pip install -r src-tauri/scripts/requirements.txt
 npm run tauri dev
 
 # Production build (creates installer)
+#
+# Releases are normally cut by CI instead: pushing a `v*` tag runs
+# .github/workflows/release.yml, which builds macOS (arm64 + Intel) and
+# Windows and attaches the installers to the GitHub release. It can also be
+# run manually from the Actions tab against an existing tag.
 npm run tauri build
 # Output: src-tauri/target/release/bundle/
 ```
