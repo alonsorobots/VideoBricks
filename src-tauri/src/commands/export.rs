@@ -6,24 +6,26 @@ use std::process::Command;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
+/// Snapshot the rendered GIF paths without holding the state lock across I/O.
+fn gif_paths(app: &tauri::AppHandle) -> Result<Vec<std::path::PathBuf>, String> {
+    let state = app.state::<Mutex<ConversionState>>();
+    let s = state.lock().map_err(|_| "State lock failed")?;
+    let paths = s.gif_paths.lock().map_err(|_| "Data lock failed")?;
+    if paths.is_empty() {
+        return Err("No GIF data available. Please convert a video first.".to_string());
+    }
+    Ok(paths.clone())
+}
+
 /// Save a single GIF (first result) to a file
 #[tauri::command]
 pub async fn save_gif_file(
     app: tauri::AppHandle,
     output_path: String,
 ) -> Result<u64, String> {
-    let state = app.state::<Mutex<ConversionState>>();
-    let s = state.lock().map_err(|_| "State lock failed")?;
-    let data_list = s.gif_data_list.lock().map_err(|_| "Data lock failed")?;
-
-    let data = data_list
-        .first()
-        .ok_or("No GIF data available. Please convert a video first.")?;
-
-    std::fs::write(&output_path, data)
-        .map_err(|e| format!("Failed to write file: {}", e))?;
-
-    Ok(data.len() as u64)
+    let paths = gif_paths(&app)?;
+    std::fs::copy(&paths[0], &output_path)
+        .map_err(|e| format!("Failed to write file: {}", e))
 }
 
 /// Save all GIFs to a directory with numbered filenames.
@@ -34,13 +36,7 @@ pub async fn save_all_gif_files(
     directory: String,
     base_name: String,
 ) -> Result<Vec<String>, String> {
-    let state = app.state::<Mutex<ConversionState>>();
-    let s = state.lock().map_err(|_| "State lock failed")?;
-    let data_list = s.gif_data_list.lock().map_err(|_| "Data lock failed")?;
-
-    if data_list.is_empty() {
-        return Err("No GIF data available.".to_string());
-    }
+    let sources = gif_paths(&app)?;
 
     let dir = std::path::Path::new(&directory);
     if !dir.exists() {
@@ -50,18 +46,15 @@ pub async fn save_all_gif_files(
 
     let mut saved_paths = Vec::new();
 
-    if data_list.len() == 1 {
-        let path = dir.join(format!("{}.gif", base_name));
-        std::fs::write(&path, &data_list[0])
-            .map_err(|e| format!("Failed to write file: {}", e))?;
+    for (i, source) in sources.iter().enumerate() {
+        let path = if sources.len() == 1 {
+            dir.join(format!("{}.gif", base_name))
+        } else {
+            dir.join(format!("{}_{:02}.gif", base_name, i + 1))
+        };
+        std::fs::copy(source, &path)
+            .map_err(|e| format!("Failed to write file {}: {}", i + 1, e))?;
         saved_paths.push(path.to_string_lossy().to_string());
-    } else {
-        for (i, data) in data_list.iter().enumerate() {
-            let path = dir.join(format!("{}_{:02}.gif", base_name, i + 1));
-            std::fs::write(&path, data)
-                .map_err(|e| format!("Failed to write file {}: {}", i + 1, e))?;
-            saved_paths.push(path.to_string_lossy().to_string());
-        }
     }
 
     Ok(saved_paths)
@@ -72,21 +65,9 @@ pub async fn save_all_gif_files(
 pub async fn copy_gif_to_clipboard(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let state = app.state::<Mutex<ConversionState>>();
-    let s = state.lock().map_err(|_| "State lock failed")?;
-    let data_list = s.gif_data_list.lock().map_err(|_| "Data lock failed")?;
-
-    let data = data_list
-        .first()
-        .ok_or("No GIF data available.")?;
-
-    // Write to a temp file
-    let temp_dir = std::env::temp_dir();
-    let temp_path = temp_dir.join(format!("videobricks-{}.gif", uuid::Uuid::new_v4()));
-    std::fs::write(&temp_path, data)
-        .map_err(|e| format!("Failed to write temp file: {}", e))?;
-
-    Ok(temp_path.to_string_lossy().to_string())
+    // The rendered GIF already lives in a temp file; hand back its path.
+    let paths = gif_paths(&app)?;
+    Ok(paths[0].to_string_lossy().to_string())
 }
 
 /// Convert video to MP4 with all settings applied.
@@ -121,13 +102,15 @@ pub async fn convert_to_mp4(
             settings.crop,
             settings.width,
             settings.height,
-            &|completed, total| {
-                let p = completed as f64 / total.max(1) as f64;
+            &|p: f64| {
+                let p = p.clamp(0.0, 1.0);
                 let _ = app_handle.emit(
                     "conversion-progress",
                     ConversionProgressEvent {
-                        completed_frames: completed as u32,
-                        total_frames: total as u32,
+                        // Percent-scaled so the UI's "n of m" readout stays sane
+                        // for MP4, which has no frame accounting of its own.
+                        completed_frames: (p * 100.0).round() as u32,
+                        total_frames: 100,
                         progress: p,
                         stage: "encoding".to_string(),
                     },
@@ -250,13 +233,8 @@ pub async fn save_gifs_to_temp(
     app: tauri::AppHandle,
     base_name: String,
 ) -> Result<Vec<String>, String> {
-    let state = app.state::<Mutex<ConversionState>>();
-    let s = state.lock().map_err(|_| "State lock failed")?;
-    let data_list = s.gif_data_list.lock().map_err(|_| "Data lock failed")?;
-
-    if data_list.is_empty() {
-        return Err("No GIF data available.".to_string());
-    }
+    // Copy under the user-visible base name so the dragged file is named well.
+    let sources = gif_paths(&app)?;
 
     let temp_dir = std::env::temp_dir().join("videobricks-drag");
     std::fs::create_dir_all(&temp_dir)
@@ -264,18 +242,15 @@ pub async fn save_gifs_to_temp(
 
     let mut paths = Vec::new();
 
-    if data_list.len() == 1 {
-        let path = temp_dir.join(format!("{}.gif", base_name));
-        std::fs::write(&path, &data_list[0])
-            .map_err(|e| format!("Failed to write temp GIF: {}", e))?;
+    for (i, source) in sources.iter().enumerate() {
+        let path = if sources.len() == 1 {
+            temp_dir.join(format!("{}.gif", base_name))
+        } else {
+            temp_dir.join(format!("{}_{:02}.gif", base_name, i + 1))
+        };
+        std::fs::copy(source, &path)
+            .map_err(|e| format!("Failed to write temp GIF {}: {}", i + 1, e))?;
         paths.push(path.to_string_lossy().to_string());
-    } else {
-        for (i, data) in data_list.iter().enumerate() {
-            let path = temp_dir.join(format!("{}_{:02}.gif", base_name, i + 1));
-            std::fs::write(&path, data)
-                .map_err(|e| format!("Failed to write temp GIF {}: {}", i + 1, e))?;
-            paths.push(path.to_string_lossy().to_string());
-        }
     }
 
     Ok(paths)

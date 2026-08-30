@@ -1,6 +1,11 @@
 use crate::video::{ffmpeg, validator};
 use serde::{Deserialize, Serialize};
-use tauri::Emitter;
+use std::path::PathBuf;
+use std::process::Command;
+use tauri::path::BaseDirectory;
+use tauri::{Emitter, Manager};
+
+const TRANSNET_SCRIPT: &str = include_str!("../../scripts/transnet_detect.py");
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,27 +35,103 @@ pub async fn get_video_metadata(path: String) -> Result<ffmpeg::VideoMetadata, S
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
-/// Returns thumbnails as base64-encoded BMP images (full video duration)
-#[tauri::command]
-pub async fn get_video_thumbnails(
+/// A single thumbnail as it becomes available, streamed to the UI.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThumbnailProgress {
+    /// Identifies the request, so the UI can ignore results from a superseded one.
+    request_id: u64,
+    /// Position of this thumbnail in the strip.
+    index: usize,
+    /// How many thumbnails this request will produce in total.
+    total: usize,
+    data_url: String,
+    /// True for the range (detail-trim) strip, false for the main timeline.
+    detail: bool,
+}
+
+fn encode_bmp_data_url(data: &[u8]) -> String {
+    use base64::Engine;
+    format!(
+        "data:image/bmp;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(data)
+    )
+}
+
+/// Shared implementation for the two thumbnail commands.
+///
+/// Each thumbnail is emitted as a `thumbnail-ready` event the moment its FFmpeg
+/// process finishes, so the timeline fills in progressively rather than staying
+/// empty until the whole strip is done. The full ordered list is still returned
+/// for callers that would rather just await it.
+async fn thumbnails_impl(
+    app: tauri::AppHandle,
     path: String,
     count: usize,
     thumb_height: u32,
+    start_time: Option<f64>,
+    end_time: Option<f64>,
+    request_id: u64,
+    detail: bool,
 ) -> Result<Vec<String>, String> {
-    use base64::Engine;
-
     tokio::task::spawn_blocking(move || {
-        let thumbnails = ffmpeg::generate_thumbnails(&path, count, thumb_height, None, None)?;
-        Ok(thumbnails
-            .into_iter()
-            .map(|data| {
-                let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
-                format!("data:image/bmp;base64,{}", encoded)
-            })
-            .collect())
+        let total = count.min(ffmpeg::MAX_THUMBNAILS);
+        let mut slots: Vec<Option<String>> = vec![None; total];
+
+        ffmpeg::generate_thumbnails_streaming(
+            &path,
+            count,
+            thumb_height,
+            start_time,
+            end_time,
+            &mut |index, data| {
+                let data_url = encode_bmp_data_url(data);
+                let _ = app.emit(
+                    "thumbnail-ready",
+                    ThumbnailProgress {
+                        request_id,
+                        index,
+                        total,
+                        data_url: data_url.clone(),
+                        detail,
+                    },
+                );
+                if let Some(slot) = slots.get_mut(index) {
+                    *slot = Some(data_url);
+                }
+                true
+            },
+        )?;
+
+        // Keep one entry per slot, empty where a thumbnail failed, so indices
+        // stay aligned with timeline positions. The UI renders empty slots as
+        // placeholders rather than letting the strip shift.
+        Ok(slots.into_iter().map(Option::unwrap_or_default).collect())
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
+}
+
+/// Returns thumbnails as base64-encoded BMP images (full video duration)
+#[tauri::command]
+pub async fn get_video_thumbnails(
+    app: tauri::AppHandle,
+    path: String,
+    count: usize,
+    thumb_height: u32,
+    request_id: Option<u64>,
+) -> Result<Vec<String>, String> {
+    thumbnails_impl(
+        app,
+        path,
+        count,
+        thumb_height,
+        None,
+        None,
+        request_id.unwrap_or(0),
+        false,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +153,117 @@ struct FindShotsProgress {
     total: u64,
 }
 
+fn first_existing_file(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+/// Directories that may contain bundled TransNet files.
+/// Packaged apps put resources in Tauri's resource dir (macOS: Contents/Resources,
+/// Windows: next to the exe). `tauri dev` uses CARGO_MANIFEST_DIR.
+fn transnet_search_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    if let Ok(p) = app.path().resource_dir() {
+        dirs.push(p);
+    }
+    if let Ok(p) = app.path().resolve("scripts/transnet_detect.py", BaseDirectory::Resource) {
+        if let Some(parent) = p.parent() {
+            dirs.push(parent.to_path_buf());
+            if let Some(grand) = parent.parent() {
+                dirs.push(grand.to_path_buf());
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            dirs.push(dir.to_path_buf());
+            // macOS .app: executable is in Contents/MacOS, resources in Contents/Resources
+            dirs.push(dir.join("../Resources"));
+        }
+    }
+    dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts"));
+
+    dirs
+}
+
+fn find_named_resource(dirs: &[PathBuf], filename: &str) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    for dir in dirs {
+        candidates.push(dir.join("scripts").join(filename));
+        candidates.push(dir.join(filename));
+    }
+    first_existing_file(candidates)
+}
+
+fn materialize_embedded_script(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_cache_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    let dest = dir.join("transnet_detect.py");
+    let needs_write = std::fs::read_to_string(&dest)
+        .map(|existing| existing != TRANSNET_SCRIPT)
+        .unwrap_or(true);
+    if needs_write {
+        std::fs::write(&dest, TRANSNET_SCRIPT).ok()?;
+    }
+    dest.is_file().then_some(dest)
+}
+
+fn python_has_transnet_deps(program: &str, extra_args: &[&str]) -> bool {
+    let mut cmd = ffmpeg::hidden_command(program);
+    cmd.args(extra_args);
+    cmd.args(["-c", "import onnxruntime, numpy, ffmpeg"]);
+    cmd.stdout(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::null());
+    cmd.status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Returns (program, extra args to insert before `-u script.py ...`).
+fn find_python_with_deps() -> Option<(String, Vec<String>)> {
+    if python_has_transnet_deps("python3", &[]) {
+        return Some(("python3".into(), Vec::new()));
+    }
+    if python_has_transnet_deps("python", &[]) {
+        return Some(("python".into(), Vec::new()));
+    }
+    #[cfg(windows)]
+    {
+        if python_has_transnet_deps("py", &["-3"]) {
+            return Some(("py".into(), vec!["-3".into()]));
+        }
+    }
+    None
+}
+
+fn build_conda_python_cmd() -> Result<Command, String> {
+    let conda_exe = ffmpeg::find_conda().map_err(|_| {
+        "Shot detection needs Python with onnxruntime, numpy, and ffmpeg-python. Install them with: pip install onnxruntime numpy ffmpeg-python".to_string()
+    })?;
+    #[cfg(windows)]
+    let default_env = "yt_filter";
+    #[cfg(not(windows))]
+    let default_env = "VideoBricks";
+    let env_name = std::env::var("VIDEOBRICKS_CONDA_ENV").unwrap_or_else(|_| default_env.to_string());
+    let mut c = ffmpeg::hidden_command(&conda_exe);
+    c.args(["run", "-n", &env_name, "python"]);
+    Ok(c)
+}
+
+fn resolve_transnet_paths(app: &tauri::AppHandle) -> Result<(PathBuf, Option<PathBuf>), String> {
+    let dirs = transnet_search_dirs(app);
+    let script_path = find_named_resource(&dirs, "transnet_detect.py")
+        .or_else(|| materialize_embedded_script(app))
+        .ok_or_else(|| {
+            "transnet_detect.py not found in the app bundle. Try reinstalling VideoBricks.".to_string()
+        })?;
+    let onnx_model = find_named_resource(&dirs, "transnetv2.onnx")
+        .or_else(|| {
+            let beside_script = script_path.with_file_name("transnetv2.onnx");
+            beside_script.is_file().then_some(beside_script)
+        });
+    Ok((script_path, onnx_model))
+}
+
 #[tauri::command]
 pub async fn find_shots(
     app: tauri::AppHandle,
@@ -81,78 +273,31 @@ pub async fn find_shots(
     tokio::task::spawn_blocking(move || {
         use std::io::BufRead;
 
-        // Resolve the transnet_detect.py script path
-        let script_path = {
-            let exe_dir = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-            let candidates = [
-                exe_dir.as_ref().map(|d| d.join("scripts").join("transnet_detect.py")),
-                Some(std::path::PathBuf::from(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/scripts/transnet_detect.py"
-                ))),
-            ];
-            candidates
-                .into_iter()
-                .flatten()
-                .find(|p| p.exists())
-                .ok_or_else(|| "transnet_detect.py script not found".to_string())?
-        };
+        let (script_path, onnx_model) = resolve_transnet_paths(&app)?;
+        let script_str = script_path
+            .to_str()
+            .ok_or_else(|| "transnet_detect.py path is not valid UTF-8".to_string())?
+            .to_string();
 
-        // If the ONNX model exists next to the script, pass --model so the
-        // script uses ONNX Runtime instead of the heavier PyTorch backend.
-        let onnx_model = script_path.with_file_name("transnetv2.onnx");
-
-        // Build the python command. Strategy:
-        //   1. Try running `python` directly (works if the active conda env or
-        //      system Python has the required packages).
-        //   2. If that's not available, fall back to `conda run` with a known
-        //      env name (VIDEOBRICKS_CONDA_ENV, default "VideoBricks" on
-        //      macOS/Linux, "yt_filter" on Windows).
-        let mut cmd = {
-            let use_direct_python = ffmpeg::hidden_command("python")
-                .args(["-c", "import onnxruntime, numpy, ffmpeg"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-
-            let mut c;
-            if use_direct_python {
-                c = ffmpeg::hidden_command("python");
-                c.args([
-                    "-u",
-                    script_path.to_str().unwrap_or("transnet_detect.py"),
-                    &path,
-                    "--threshold",
-                    &threshold.to_string(),
-                ]);
-            } else {
-                let conda_exe = ffmpeg::find_conda()?;
-                #[cfg(windows)]
-                let default_env = "yt_filter";
-                #[cfg(not(windows))]
-                let default_env = "VideoBricks";
-                let env_name = std::env::var("VIDEOBRICKS_CONDA_ENV")
-                    .unwrap_or_else(|_| default_env.to_string());
-                c = ffmpeg::hidden_command(&conda_exe);
-                c.args([
-                    "run",
-                    "-n", &env_name,
-                    "python", "-u",
-                    script_path.to_str().unwrap_or("transnet_detect.py"),
-                    &path,
-                    "--threshold",
-                    &threshold.to_string(),
-                ]);
-            }
-            if onnx_model.exists() {
-                c.args(["--model", onnx_model.to_str().unwrap_or("transnetv2.onnx")]);
-            }
+        // Prefer a system Python that already has the ONNX deps. Fall back to
+        // `conda run` for developer machines that keep packages in an env.
+        let mut cmd = if let Some((program, extra)) = find_python_with_deps() {
+            let mut c = ffmpeg::hidden_command(&program);
+            c.args(&extra);
+            c.arg("-u");
+            c.arg(&script_str);
+            c
+        } else {
+            let mut c = build_conda_python_cmd()?;
+            c.arg("-u");
+            c.arg(&script_str);
             c
         };
+        cmd.arg(&path);
+        cmd.args(["--threshold", &threshold.to_string()]);
+        if let Some(onnx) = onnx_model.as_ref().and_then(|p| p.to_str()) {
+            cmd.args(["--model", onnx]);
+        }
 
         // Spawn with piped stdout + stderr so we can stream stderr for progress
         cmd.stdout(std::process::Stdio::piped());
@@ -260,26 +405,23 @@ pub async fn find_shots(
 /// Returns thumbnails for a specific time range (detail trim mode)
 #[tauri::command]
 pub async fn get_video_thumbnails_range(
+    app: tauri::AppHandle,
     path: String,
     count: usize,
     thumb_height: u32,
     start_time: f64,
     end_time: f64,
+    request_id: Option<u64>,
 ) -> Result<Vec<String>, String> {
-    use base64::Engine;
-
-    tokio::task::spawn_blocking(move || {
-        let thumbnails = ffmpeg::generate_thumbnails(
-            &path, count, thumb_height, Some(start_time), Some(end_time),
-        )?;
-        Ok(thumbnails
-            .into_iter()
-            .map(|data| {
-                let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
-                format!("data:image/bmp;base64,{}", encoded)
-            })
-            .collect())
-    })
+    thumbnails_impl(
+        app,
+        path,
+        count,
+        thumb_height,
+        Some(start_time),
+        Some(end_time),
+        request_id.unwrap_or(0),
+        true,
+    )
     .await
-    .map_err(|e| format!("Task failed: {}", e))?
 }

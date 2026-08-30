@@ -1,4 +1,5 @@
 use crate::gifski_bridge::{self, ConversionSettings};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
@@ -8,17 +9,30 @@ use serde::Serialize;
 /// Shared state for cancellation + result storage
 pub struct ConversionState {
     pub cancelled: Arc<AtomicBool>,
-    /// All GIF results (1 element for merge, N for split)
-    pub gif_data_list: Mutex<Vec<Vec<u8>>>,
+    /// Paths of the rendered GIFs (1 element for merge, N for split).
+    ///
+    /// These used to be held as `Vec<Vec<u8>>` and handed to the webview as
+    /// base64 data URLs. A GIF from a large source is easily hundreds of
+    /// megabytes, and base64 inflates it by a third on top of that -- enough to
+    /// hang or kill the webview just to show a preview. Now the bytes live in a
+    /// temp file and the UI loads them over the asset protocol.
+    pub gif_paths: Mutex<Vec<PathBuf>>,
 }
 
 impl Default for ConversionState {
     fn default() -> Self {
         Self {
             cancelled: Arc::new(AtomicBool::new(false)),
-            gif_data_list: Mutex::new(Vec::new()),
+            gif_paths: Mutex::new(Vec::new()),
         }
     }
+}
+
+/// Directory holding the current conversion's rendered GIFs.
+pub fn output_dir() -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir().join("videobricks-output");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
+    Ok(dir)
 }
 
 #[derive(Clone, Serialize)]
@@ -34,7 +48,8 @@ pub struct ConversionProgressEvent {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GifResult {
-    pub data_url: String,
+    /// Path to the rendered GIF; the UI displays it via the asset protocol.
+    pub file_path: String,
     pub file_size: u64,
 }
 
@@ -45,8 +60,6 @@ pub async fn convert_to_gif(
     app: tauri::AppHandle,
     settings: ConversionSettings,
 ) -> Result<Vec<GifResult>, String> {
-    use base64::Engine;
-
     // Reset cancellation
     let cancelled = Arc::new(AtomicBool::new(false));
 
@@ -55,7 +68,7 @@ pub async fn convert_to_gif(
     {
         let mut s = state.lock().map_err(|_| "State lock failed")?;
         s.cancelled = cancelled.clone();
-        s.gif_data_list.lock().map_err(|_| "Data lock failed")?.clear();
+        s.gif_paths.lock().map_err(|_| "Data lock failed")?.clear();
     }
 
     let app_handle = app.clone();
@@ -116,23 +129,29 @@ pub async fn convert_to_gif(
         return Err("Conversion cancelled".to_string());
     }
 
-    // Store GIF data for save/copy operations
-    {
-        let s = state.lock().map_err(|_| "State lock failed")?;
-        *s.gif_data_list.lock().map_err(|_| "Data lock failed")? = gif_data_list.clone();
+    // Write each GIF out and hand the UI file paths instead of base64 blobs.
+    // A fresh id per conversion keeps the webview from serving a cached image
+    // from a previous run at the same URL.
+    let dir = output_dir()?;
+    let run_id = uuid::Uuid::new_v4();
+    let mut paths = Vec::with_capacity(gif_data_list.len());
+    let mut results = Vec::with_capacity(gif_data_list.len());
+
+    for (i, data) in gif_data_list.iter().enumerate() {
+        let path = dir.join(format!("{}-{:02}.gif", run_id, i + 1));
+        std::fs::write(&path, data)
+            .map_err(|e| format!("Failed to write GIF: {}", e))?;
+        results.push(GifResult {
+            file_path: path.to_string_lossy().to_string(),
+            file_size: data.len() as u64,
+        });
+        paths.push(path);
     }
 
-    // Build results with base64 data URLs
-    let results: Vec<GifResult> = gif_data_list
-        .iter()
-        .map(|data| {
-            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
-            GifResult {
-                data_url: format!("data:image/gif;base64,{}", encoded),
-                file_size: data.len() as u64,
-            }
-        })
-        .collect();
+    {
+        let s = state.lock().map_err(|_| "State lock failed")?;
+        *s.gif_paths.lock().map_err(|_| "Data lock failed")? = paths;
+    }
 
     Ok(results)
 }
@@ -154,28 +173,16 @@ pub async fn cancel_conversion(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Estimate file size by running a partial conversion
+/// Estimate output file size from a small sample encode.
+///
+/// This used to run a full conversion at reduced fps, which on the app's
+/// defaults meant decoding the entire video at source resolution every time the
+/// user nudged a setting. `estimate_gif_size` encodes ~12 small frames instead.
 #[tauri::command]
 pub async fn estimate_file_size(settings: ConversionSettings) -> Result<u64, String> {
-    let cancelled = Arc::new(AtomicBool::new(false));
-
-    // Create a modified settings for estimation (fewer frames)
-    let mut est_settings = settings.clone();
-    let original_fps = settings.fps;
-    est_settings.fps = est_settings.fps.min(5); // Lower FPS for estimation
-    let est_fps = est_settings.fps;
-
-    let gif_data = tokio::task::spawn_blocking(move || {
-        gifski_bridge::convert_to_gif(&est_settings, cancelled, |_| {})
-    })
-    .await
-    .map_err(|e| format!("Task failed: {}", e))??;
-
-    // Scale up the estimate based on the FPS ratio
-    let fps_ratio = original_fps as f64 / est_fps.max(1) as f64;
-    let estimated = (gif_data.len() as f64 * fps_ratio) as u64;
-
-    Ok(estimated)
+    tokio::task::spawn_blocking(move || gifski_bridge::estimate_gif_size(&settings))
+        .await
+        .map_err(|e| format!("Task failed: {}", e))?
 }
 
 /// Generate a preview GIF (lower quality, smaller) for the edit screen
