@@ -1,6 +1,6 @@
 use crate::video::{ffmpeg, validator};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::path::BaseDirectory;
 use tauri::{Emitter, Manager};
@@ -209,6 +209,59 @@ fn materialize_embedded_script(app: &tauri::AppHandle) -> Option<PathBuf> {
     dest.is_file().then_some(dest)
 }
 
+/// Locate the Python runtime bundled with the app.
+///
+/// Shot detection needs Python plus onnxruntime/numpy/ffmpeg-python, which used
+/// to be a manual install step for every user. A trimmed embeddable CPython with
+/// those wheels baked in now ships as an app resource, so it works out of the
+/// box; system Python and conda remain as fallbacks for dev machines.
+fn bundled_python(app: &tauri::AppHandle) -> Option<PathBuf> {
+    #[cfg(windows)]
+    const PY: &str = "python.exe";
+    #[cfg(not(windows))]
+    const PY: &str = "bin/python3";
+
+    let mut candidates = Vec::new();
+    if let Ok(dir) = app.path().resource_dir() {
+        candidates.push(dir.join("python").join(PY));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("python").join(PY));
+            candidates.push(dir.join("../Resources/python").join(PY));
+        }
+    }
+    // `tauri dev` runs from target/debug, where resources are not staged.
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python").join(PY));
+
+    first_existing_file(candidates)
+}
+
+/// Directory holding the FFmpeg binaries, if we resolved them to a real path.
+///
+/// The detection script shells out to `ffmpeg`/`ffprobe` by bare name, so this
+/// gets prepended to the child's PATH -- otherwise a machine with no system
+/// FFmpeg would fail even though the app ships its own.
+fn ffmpeg_dir() -> Option<PathBuf> {
+    let ffmpeg = ffmpeg::get_ffmpeg().ok()?;
+    let path = PathBuf::from(&ffmpeg);
+    if path.is_absolute() {
+        path.parent().map(|p| p.to_path_buf())
+    } else {
+        None
+    }
+}
+
+/// Prepend `dir` to the command's PATH so bundled binaries win over system ones.
+fn prepend_path(cmd: &mut Command, dir: &Path) {
+    let existing = std::env::var_os("PATH").unwrap_or_default();
+    let mut entries = vec![dir.to_path_buf()];
+    entries.extend(std::env::split_paths(&existing));
+    if let Ok(joined) = std::env::join_paths(entries) {
+        cmd.env("PATH", joined);
+    }
+}
+
 fn python_has_transnet_deps(program: &str, extra_args: &[&str]) -> bool {
     let mut cmd = ffmpeg::hidden_command(program);
     cmd.args(extra_args);
@@ -279,9 +332,15 @@ pub async fn find_shots(
             .ok_or_else(|| "transnet_detect.py path is not valid UTF-8".to_string())?
             .to_string();
 
-        // Prefer a system Python that already has the ONNX deps. Fall back to
-        // `conda run` for developer machines that keep packages in an env.
-        let mut cmd = if let Some((program, extra)) = find_python_with_deps() {
+        // Prefer the interpreter we ship. Fall back to a system Python that
+        // already has the ONNX deps, then to `conda run` for dev machines that
+        // keep packages in an env.
+        let mut cmd = if let Some(py) = bundled_python(&app) {
+            let mut c = ffmpeg::hidden_command(&py);
+            c.arg("-u");
+            c.arg(&script_str);
+            c
+        } else if let Some((program, extra)) = find_python_with_deps() {
             let mut c = ffmpeg::hidden_command(&program);
             c.args(&extra);
             c.arg("-u");
@@ -293,6 +352,11 @@ pub async fn find_shots(
             c.arg(&script_str);
             c
         };
+        // Make the bundled FFmpeg visible to the script's own subprocesses.
+        if let Some(dir) = ffmpeg_dir() {
+            prepend_path(&mut cmd, &dir);
+        }
+
         cmd.arg(&path);
         cmd.args(["--threshold", &threshold.to_string()]);
         if let Some(onnx) = onnx_model.as_ref().and_then(|p| p.to_str()) {

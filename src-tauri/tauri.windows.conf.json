@@ -2,7 +2,8 @@
   "bundle": {
     "resources": {
       "binaries/ffmpeg.exe": "ffmpeg.exe",
-      "binaries/ffprobe.exe": "ffprobe.exe"
+      "binaries/ffprobe.exe": "ffprobe.exe",
+      "python": "python"
     }
   }
 }

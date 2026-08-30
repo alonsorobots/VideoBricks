@@ -10,6 +10,10 @@ src-tauri/binaries/*.exe
 src-tauri/binaries/ffmpeg
 src-tauri/binaries/ffprobe
 
+# Vendored Python runtime for shot detection (~95 MB, rebuilt by
+# src-tauri/scripts/vendor-python.ps1 -- see README)
+src-tauri/python/
+
 # ONNX model (uncomment to exclude from git if using external hosting instead)
 # src-tauri/scripts/*.onnx
 

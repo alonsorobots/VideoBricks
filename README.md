@@ -60,7 +60,7 @@ brew install ffmpeg
 
 ### Windows
 
-Download the `.exe` (NSIS) or `.msi` installer from the [GitHub Releases](../../releases) page. Everything is bundled -- FFmpeg, the TransNetV2 AI model, and all dependencies. No separate downloads or setup required.
+Download the `.exe` (NSIS) or `.msi` installer from the [GitHub Releases](../../releases) page. Everything is bundled -- FFmpeg, the TransNetV2 AI model, and (since 1.0.4) a self-contained Python runtime for shot detection. No separate downloads or setup required.
 
 ---
 
@@ -95,7 +95,14 @@ cp /path/to/ffprobe.exe src-tauri/binaries/
 # macOS: install via Homebrew (no need to copy binaries -- found via PATH)
 brew install ffmpeg
 
-# Install Python dependencies for shot detection
+# Vendor the self-contained Python runtime that ships with the Windows build
+# (downloads embeddable CPython + onnxruntime/numpy/ffmpeg-python, ~95 MB).
+# Not committed to the repo; only needed for Windows release builds.
+pwsh -File src-tauri/scripts/vendor-python.ps1
+
+# Alternatively, for development, use your own Python for shot detection.
+# The app falls back to system Python (then conda) when no bundled runtime
+# is present.
 pip install -r src-tauri/scripts/requirements.txt
 ```
 
