@@ -26,14 +26,19 @@ DMG="${1:?usage: sign-macos-dmg.sh <path-to-dmg>}"
 
 WORK="$(mktemp -d)"
 MNT="$WORK/mnt"
-trap 'hdiutil detach "$MNT" -quiet 2>/dev/null || true; rm -rf "$WORK"' EXIT
+DEV=""
+trap '[ -n "$DEV" ] && hdiutil detach "$DEV" -force -quiet 2>/dev/null; rm -rf "$WORK"' EXIT
 
 echo "==> Repackaging $(basename "$DMG") with a deep ad-hoc signature"
 
 # Compressed DMGs are read-only; convert so the app can be signed in place.
 hdiutil convert "$DMG" -format UDRW -o "$WORK/rw.dmg" -quiet
 mkdir -p "$MNT"
-hdiutil attach "$WORK/rw.dmg" -nobrowse -owners off -mountpoint "$MNT" -quiet
+# Remember the device node: a timed-out detach can remove the mount point
+# while leaving the device attached, after which the path no longer works.
+DEV="$(hdiutil attach "$WORK/rw.dmg" -nobrowse -owners off -mountpoint "$MNT" \
+  | awk '/^\/dev\// && !dev { dev = $1 } END { print dev }')"
+[ -n "$DEV" ] || { echo "Could not attach $WORK/rw.dmg" >&2; exit 1; }
 
 APP="$(find "$MNT" -maxdepth 1 -name "*.app" -print -quit)"
 [ -n "$APP" ] || { echo "No .app found inside the DMG" >&2; exit 1; }
@@ -52,8 +57,9 @@ if ! codesign --verify --deep --strict "$APP" 2>"$WORK/err"; then
 fi
 echo "    after:  signature valid"
 
-# Newer macOS scans freshly mounted images in the background, so the first
-# detach (and a convert right after it) can fail with "Resource busy".
+# On the macos-15-intel runner the first detach regularly fails with
+# "timeout for DiskArbitration expired" (and a convert right after can hit
+# "Resource busy").
 # Retry, then force; errors are left visible rather than silenced.
 retry() {
   local i
@@ -64,7 +70,8 @@ retry() {
   done
   return 1
 }
-retry hdiutil detach "$MNT" || hdiutil detach "$MNT" -force
+retry hdiutil detach "$DEV" || hdiutil detach "$DEV" -force
+DEV=""
 rm -rf "$MNT"
 
 retry hdiutil convert "$WORK/rw.dmg" -format UDZO -imagekey zlib-level=9 -o "$WORK/final.dmg" -ov
