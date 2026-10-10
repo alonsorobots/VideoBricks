@@ -52,10 +52,22 @@ if ! codesign --verify --deep --strict "$APP" 2>"$WORK/err"; then
 fi
 echo "    after:  signature valid"
 
-hdiutil detach "$MNT" -quiet
+# Newer macOS scans freshly mounted images in the background, so the first
+# detach (and a convert right after it) can fail with "Resource busy".
+# Retry, then force; errors are left visible rather than silenced.
+retry() {
+  local i
+  for i in 1 2 3 4 5; do
+    "$@" && return 0
+    echo "    retrying in $((i * 2))s: $*" >&2
+    sleep $((i * 2))
+  done
+  return 1
+}
+retry hdiutil detach "$MNT" || hdiutil detach "$MNT" -force
 rm -rf "$MNT"
 
-hdiutil convert "$WORK/rw.dmg" -format UDZO -imagekey zlib-level=9 -o "$WORK/final.dmg" -quiet
+retry hdiutil convert "$WORK/rw.dmg" -format UDZO -imagekey zlib-level=9 -o "$WORK/final.dmg" -ov
 mv -f "$WORK/final.dmg" "$DMG"
 
 echo "==> Done: $DMG ($(du -h "$DMG" | cut -f1))"
