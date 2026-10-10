@@ -53,7 +53,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             {
                 use cocoa::appkit::{NSColor, NSWindow};
-                use cocoa::base::{id, nil};
+                use cocoa::base::{id, nil, YES};
                 use objc::{msg_send, sel, sel_impl};
 
                 let window = app.get_webview_window("main").unwrap();
@@ -74,7 +74,7 @@ fn main() {
                                 1.0,
                             );
                             ns_window.setBackgroundColor_(bg_color);
-                            ns_window.setTitlebarAppearsTransparent_(true);
+                            ns_window.setTitlebarAppearsTransparent_(YES);
                         }
                     }
                 }
