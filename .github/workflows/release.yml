@@ -27,7 +27,7 @@ jobs:
         include:
           - os: macos-14
             label: macOS arm64
-          - os: macos-13
+          - os: macos-15-intel
             label: macOS x86_64
           - os: windows-latest
             label: Windows x64
