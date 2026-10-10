@@ -770,6 +770,49 @@ pub fn generate_thumbnails_streaming(
     Ok(delivered)
 }
 
+/// Audio counterpart of the video trim and speed filters, so sound stays in
+/// sync with the picture. `trim_start`/`trim_end` match the video trim exactly.
+fn build_audio_filter_chain(trim_start: f64, trim_end: f64, speed: f64) -> String {
+    let mut filters = vec![format!(
+        "atrim=start={}:end={},asetpts=PTS-STARTPTS",
+        trim_start, trim_end
+    )];
+
+    if (speed - 1.0).abs() > 0.01 {
+        // atempo only accepts 0.5..2.0 per instance, so chain it for larger changes.
+        let mut remaining = speed;
+        while remaining > 2.0 {
+            filters.push("atempo=2.0".to_string());
+            remaining /= 2.0;
+        }
+        while remaining < 0.5 {
+            filters.push("atempo=0.5".to_string());
+            remaining /= 0.5;
+        }
+        filters.push(format!("atempo={}", remaining));
+    }
+
+    filters.join(",")
+}
+
+/// FFmpeg arguments for the audio side of an export: the first audio track,
+/// trimmed and retimed to match the video, or `-an` when the source is silent.
+fn audio_export_args(metadata: &VideoMetadata, trim_start: f64, trim_end: f64, speed: f64) -> Vec<String> {
+    if !metadata.has_audio {
+        return vec!["-an".to_string()];
+    }
+    [
+        "-map", "0:v:0",
+        "-map", "0:a:0",
+        "-af", &build_audio_filter_chain(trim_start, trim_end, speed),
+        "-c:a", "aac",
+        "-b:a", "192k",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
 /// Export video with modifications (crop, trim, scale, speed)
 pub fn export_modified_video(
     input_path: &str,
@@ -818,10 +861,9 @@ pub fn export_modified_video(
     let filter_chain = filters.join(",");
 
     let mut cmd = hidden_command(&ffmpeg);
+    cmd.args(["-i", input_path, "-vf", &filter_chain]);
+    cmd.args(audio_export_args(&metadata, actual_start, actual_end, speed));
     cmd.args([
-        "-i", input_path,
-        "-vf", &filter_chain,
-        "-an", // no audio
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "18",
@@ -931,7 +973,9 @@ fn export_single_segment(
         "-t", &format!("{:.3}", read_duration),
         "-i", input_path,
         "-vf", &filter_chain,
-        "-an",
+    ]);
+    cmd.args(audio_export_args(metadata, trim_start, trim_end, speed));
+    cmd.args([
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "18",
@@ -1306,5 +1350,74 @@ mod tests {
             v
         );
         assert!((v.last().unwrap() - 1.0).abs() < 1e-6, "ended at {:?}", v.last());
+    }
+
+    /// Build a short synthetic clip (test pattern + tone) so audio export can be
+    /// checked without a sample video on disk.
+    fn synthetic_clip(dir: &Path, with_audio: bool) -> Option<String> {
+        let ffmpeg = get_ffmpeg().ok()?;
+        let out = dir.join(if with_audio { "src_a.mp4" } else { "src.mp4" });
+        let mut cmd = hidden_command(&ffmpeg);
+        cmd.args(["-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=10"]);
+        if with_audio {
+            cmd.args(["-f", "lavfi", "-i", "sine=frequency=440:duration=10"]);
+        }
+        cmd.args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest", "-y"]);
+        cmd.arg(&out);
+        cmd.output().ok()?.status.success().then(|| out.to_string_lossy().to_string())
+    }
+
+    /// Duration in seconds of the output's first stream of `kind` ("v" or "a").
+    fn stream_duration(path: &str, kind: &str) -> Option<f64> {
+        let out = hidden_command(get_ffprobe().ok()?)
+            .args(["-v", "error", "-select_streams", &format!("{}:0", kind),
+                   "-show_entries", "stream=duration", "-of", "csv=p=0", path])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    }
+
+    /// Exports keep the soundtrack, trimmed and retimed to match the video, in
+    /// split, merged and sped-up exports alike; silent sources still export.
+    #[test]
+    fn mp4_export_keeps_audio_in_sync() {
+        let dir = tempfile::tempdir().unwrap();
+        let Some(src) = synthetic_clip(dir.path(), true) else { return };
+
+        // (segments, mode, speed, expected output seconds)
+        let cases: [(&[(f64, f64)], &str, f64, f64); 5] = [
+            (&[(2.0, 6.0)], "merge", 1.0, 4.0),
+            (&[(1.0, 3.0), (5.0, 8.0)], "merge", 1.0, 5.0),
+            (&[(1.0, 3.0), (5.0, 8.0)], "merge", 2.0, 2.5),
+            (&[(0.0, 9.0)], "merge", 0.25, 36.0),
+            (&[(0.0,0.5),(1.0,1.5),(2.0,2.5),(3.0,3.5),(4.0,4.5),(5.0,5.5),(6.0,6.5),(7.0,7.5),(8.0,8.5),(9.0,9.5)], "merge", 1.0, 5.0),
+        ];
+        for (i, (segs, mode, speed, expected)) in cases.iter().enumerate() {
+            let out = dir.path().join(format!("out_{}.mp4", i));
+            let out = out.to_str().unwrap();
+            export_mp4_segments(&src, out, segs, mode, *speed, None, None, None, &|_| {}).unwrap();
+            let v = stream_duration(out, "v").expect("video stream");
+            let a = stream_duration(out, "a").unwrap_or_else(|| panic!("case {}: no audio stream", i));
+            assert!((v - expected).abs() < 0.15, "case {}: video {}s, expected {}s", i, v, expected);
+            assert!((a - expected).abs() < 0.15, "case {}: audio {}s, expected {}s", i, a, expected);
+        }
+
+        // Split mode: every file gets its own audio.
+        let out = dir.path().join("split.mp4");
+        let results = export_mp4_segments(
+            &src, out.to_str().unwrap(), &[(1.0, 3.0), (5.0, 8.0)], "split", 1.0,
+            None, None, None, &|_| {},
+        ).unwrap();
+        for (r, expected) in results.iter().zip([2.0, 3.0]) {
+            let a = stream_duration(&r.file_path, "a").expect("split file has audio");
+            assert!((a - expected).abs() < 0.15, "split audio {}s, expected {}s", a, expected);
+        }
+
+        // A source without audio must still export (no audio stream, no error).
+        let silent = synthetic_clip(dir.path(), false).unwrap();
+        let out = dir.path().join("silent_out.mp4");
+        export_mp4_segments(&silent, out.to_str().unwrap(), &[(1.0, 4.0)], "merge", 1.0,
+            None, None, None, &|_| {}).unwrap();
+        assert!(stream_duration(out.to_str().unwrap(), "a").is_none());
     }
 }
