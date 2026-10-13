@@ -34,12 +34,12 @@ The easiest way to install is via [Homebrew](https://brew.sh/). This handles eve
 brew install --cask alonsorobots/tap/videobricks
 ```
 
-This installs VideoBricks and its FFmpeg dependency automatically. To update later, run `brew upgrade --cask videobricks`.
+FFmpeg and everything else it needs are built into the app, so there is nothing else to install. To update later, run `brew upgrade --cask videobricks`.
 
 <details>
 <summary>Alternative: manual install from DMG</summary>
 
-Download `VideoBricks_x.x.x_aarch64.dmg` from the [GitHub Releases](../../releases) page, open it, and drag VideoBricks to Applications. The app is ad-hoc signed rather than notarized, so the first launch needs a right-click on the app and **Open** (double-clicking shows "unidentified developer"). The Homebrew cask above avoids this.
+Download `VideoBricks_x.x.x_aarch64.dmg` (Apple Silicon) or `VideoBricks_x.x.x_x64_x86_64.dmg` (Intel) from the [GitHub Releases](../../releases) page, open it, and drag VideoBricks to Applications. The app is ad-hoc signed rather than notarized, so the first launch needs a right-click on the app and **Open** (double-clicking shows "unidentified developer"). The Homebrew cask above avoids this.
 
 Because the app is not signed with an Apple Developer certificate, macOS Gatekeeper will block the first launch. To allow it:
 
@@ -48,12 +48,6 @@ Because the app is not signed with an Apple Developer certificate, macOS Gatekee
 
 ```bash
 xattr -cr /Applications/VideoBricks.app
-```
-
-You also need FFmpeg installed separately:
-
-```bash
-brew install ffmpeg
 ```
 
 </details>
@@ -91,8 +85,9 @@ npm install
 pwsh -File src-tauri/scripts/vendor-ffmpeg.ps1
 # ...or drop your own into src-tauri/binaries/ffmpeg.exe and ffprobe.exe
 #
-# macOS: install via Homebrew (no need to copy binaries -- found via PATH)
-brew install ffmpeg
+# macOS: fetch static builds (needed for release builds; for development,
+# a Homebrew ffmpeg on PATH also works)
+bash src-tauri/scripts/vendor-ffmpeg.sh
 
 # Vendor the self-contained Python runtime that ships with the app
 # (CPython + onnxruntime/numpy/ffmpeg-python, ~90-95 MB). Not committed

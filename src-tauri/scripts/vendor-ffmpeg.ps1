@@ -1,7 +1,7 @@
 # Downloads the FFmpeg binaries the Windows app bundles.
 #
 # They are ~200 MB each and gitignored, so CI and fresh clones need this before
-# a release build. macOS gets FFmpeg from Homebrew instead.
+# a release build. The macOS equivalent is vendor-ffmpeg.sh.
 #
 # Usage:  pwsh -File src-tauri/scripts/vendor-ffmpeg.ps1
 

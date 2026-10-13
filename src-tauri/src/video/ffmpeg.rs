@@ -137,20 +137,24 @@ pub struct VideoMetadata {
     pub file_size: u64,
 }
 
+/// The copy of `name` shipped inside the app, if any. Windows installs it
+/// next to the executable; a macOS bundle keeps resources in
+/// Contents/Resources, beside the executable's Contents/MacOS.
+fn bundled_binary(name: &str) -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let file = if cfg!(windows) { format!("{}.exe", name) } else { name.to_string() };
+    [dir.join(&file), dir.join("../Resources").join(&file)]
+        .into_iter()
+        .find(|p| p.is_file())
+        .map(|p| p.to_string_lossy().to_string())
+}
+
 /// Find the ffprobe executable.
-/// Checks: bundled alongside exe, PATH, common install locations
+/// Checks: bundled with the app, PATH, common install locations
 fn find_ffprobe() -> Option<String> {
-    // Check if bundled next to our executable
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            #[cfg(windows)]
-            let bundled = dir.join("ffprobe.exe");
-            #[cfg(not(windows))]
-            let bundled = dir.join("ffprobe");
-            if bundled.exists() {
-                return Some(bundled.to_string_lossy().to_string());
-            }
-        }
+    if let Some(bundled) = bundled_binary("ffprobe") {
+        return Some(bundled);
     }
 
     // Check PATH
@@ -186,16 +190,8 @@ fn find_ffprobe() -> Option<String> {
 
 /// Find the ffmpeg executable
 fn find_ffmpeg() -> Option<String> {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            #[cfg(windows)]
-            let bundled = dir.join("ffmpeg.exe");
-            #[cfg(not(windows))]
-            let bundled = dir.join("ffmpeg");
-            if bundled.exists() {
-                return Some(bundled.to_string_lossy().to_string());
-            }
-        }
+    if let Some(bundled) = bundled_binary("ffmpeg") {
+        return Some(bundled);
     }
 
     if hidden_command("ffmpeg")

@@ -1,6 +1,8 @@
 {
   "bundle": {
     "resources": {
+      "binaries/ffmpeg": "ffmpeg",
+      "binaries/ffprobe": "ffprobe",
       "python": "python"
     },
     "macOS": {

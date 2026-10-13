@@ -65,12 +65,27 @@ jobs:
         shell: pwsh
         run: pwsh -File src-tauri/scripts/vendor-python.ps1
 
+      - name: Vendor FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: bash src-tauri/scripts/vendor-ffmpeg.sh
+
       - name: Vendor Python runtime (macOS)
         if: runner.os == 'macOS'
         run: bash src-tauri/scripts/vendor-python.sh
 
       - name: Build
         run: npm run tauri build
+
+      # The app must find FFmpeg inside itself, not on the user's machine:
+      # run the copies from the built bundle, exactly where the app looks.
+      - name: Check bundled FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app="$(find src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)"
+          [ -n "$app" ] || { echo "No .app was produced"; exit 1; }
+          "$app/Contents/Resources/ffmpeg" -version | head -1
+          "$app/Contents/Resources/ffprobe" -version | head -1
 
       # Tauri seals only the main binary unless given a signing identity, so a
       # downloaded app fails verification and macOS calls it "damaged". This
